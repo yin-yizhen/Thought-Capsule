@@ -654,27 +654,33 @@ async function checkWeeklyReview(now: Date, config: any, reviewState: any) {
 }
 
 async function handleWeeklyReviewPrompt(weekId: string, range: any, isMissed: boolean, config: any, reviewState: any) {
-  const msg = isMissed 
-    ? `上周还没有生成每周复盘。\n\n时间范围：${range.start.toISOString().split('T')[0]} 至 ${range.end.toISOString().split('T')[0]}`
-    : `准备生成每周复盘\n\n时间范围：${range.start.toISOString().split('T')[0]} 至 ${range.end.toISOString().split('T')[0]}`;
+  if (!reminderWindow) {
+    createReminderWindowInternal();
+    reminderWindow?.webContents.once('did-finish-load', () => {
+      reminderWindow?.show();
+      reminderWindow?.webContents.send('weekly-show', { weekId, range, isMissed });
+      shell.beep();
+    });
+  } else {
+    reminderWindow?.show();
+    reminderWindow?.webContents.send('weekly-show', { weekId, range, isMissed });
+    shell.beep();
+  }
+}
 
-  const { response } = await dialog.showMessageBox({
-    type: 'question',
-    title: '每周复盘',
-    message: msg,
-    buttons: ['现在生成/直接写入', '今天晚上提醒/稍后', '跳过本周', '取消'],
-    cancelId: 3
-  });
+ipcMain.handle('handle-weekly-action', async (_event, action: string, data: any) => {
+  const { weekId, range, isMissed } = data;
+  const config = configStore.getAll();
+  const reviewState = reviewStore.getAll();
+  const ws = reviewState.weekly_reviews[weekId] || { status: 'pending' };
 
-  const ws = reviewState.weekly_reviews[weekId];
-
-  if (response === 0) { // 现在生成
+  if (action === 'now') {
     ws.status = 'generating';
     reviewState.weekly_reviews[weekId] = ws;
     reviewStore.setAll(reviewState);
     
     try {
-      const content = await generateWeeklyReview(config, weekId, range, tasksStore, entriesStore);
+      const content = await generateWeeklyReview(config, weekId, { start: new Date(range.start), end: new Date(range.end) }, tasksStore, entriesStore);
       if (config.obsidianPath) {
         const outDir = path.join(config.obsidianPath, '周期复盘', '每周复盘');
         if (!fs.existsSync(outDir)) {
@@ -687,7 +693,7 @@ async function handleWeeklyReviewPrompt(weekId: string, range: any, isMissed: bo
         fs.writeFileSync(file, content, 'utf-8');
         
         ws.status = 'generated';
-        dialog.showMessageBox({ type: 'info', title: '每周复盘', message: '每周复盘生成成功并已写入！' });
+        new Notification({ title: '每周复盘', body: '每周复盘生成成功并已写入！' }).show();
       }
     } catch (e: any) {
       ws.status = 'snoozed';
@@ -695,19 +701,19 @@ async function handleWeeklyReviewPrompt(weekId: string, range: any, isMissed: bo
       tomorrow.setDate(tomorrow.getDate() + 1);
       tomorrow.setHours(9, 0, 0, 0);
       ws.next_prompt_at = tomorrow.toISOString();
-      dialog.showErrorBox('生成失败', e.message);
+      new Notification({ title: '每周复盘生成失败', body: e.message }).show();
     }
-  } else if (response === 1) { // 稍后
+  } else if (action === 'later') {
     ws.status = 'snoozed';
     const next = new Date();
     if (isMissed) {
-      next.setHours(22, 0, 0, 0); // Tonight 22:00
+      next.setHours(22, 0, 0, 0);
       if (next <= new Date()) next.setDate(next.getDate() + 1);
     } else {
-      next.setHours(next.getHours() + 1); // 1 hour later
+      next.setHours(next.getHours() + 1);
     }
     ws.next_prompt_at = next.toISOString();
-  } else if (response === 2) { // 跳过
+  } else if (action === 'skip') {
     ws.status = 'skipped';
   } else {
     ws.status = 'snoozed';
@@ -719,7 +725,7 @@ async function handleWeeklyReviewPrompt(weekId: string, range: any, isMissed: bo
   
   reviewState.weekly_reviews[weekId] = ws;
   reviewStore.setAll(reviewState);
-}
+});
 
 import { generateReviewDraft, saveReview, isReviewDoneToday } from './review.js';
 

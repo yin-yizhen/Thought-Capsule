@@ -47,9 +47,11 @@ export function getWeekRange(date = new Date()) {
   return { start, end };
 }
 
-function getDailyDiaries(obsidianPath: string, start: Date, end: Date) {
-  if (!obsidianPath) return [];
-  const diariesDir = path.join(obsidianPath, '每日日记');
+function getDailyDiaries(config: any, start: Date, end: Date) {
+  if (!config.obsidianPath) return [];
+  const parentDir = config.parentFolderName || '提示助手';
+  const diaryDirName = config.diaryFolderName || '每日日记';
+  const diariesDir = path.join(config.obsidianPath, parentDir, diaryDirName);
   if (!fs.existsSync(diariesDir)) return [];
   
   const days = [];
@@ -70,7 +72,7 @@ function getDailyDiaries(obsidianPath: string, start: Date, end: Date) {
 }
 
 export async function generateWeeklyReview(config: any, weekId: string, range: {start: Date, end: Date}, tasksStore: any, entriesStore: any) {
-  const diaries = getDailyDiaries(config.obsidianPath, range.start, range.end);
+  const diaries = getDailyDiaries(config, range.start, range.end);
   
   const tasks = tasksStore.getAll();
   const weekTasks = tasks.filter((t: any) => {

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { CheckCircle, Clock, Sparkles, FileText, ChevronRight } from 'lucide-react';
 
 export default function Reminder() {
-  const [mode, setMode] = useState<'none' | 'morning' | 'reminder' | 'review'>('none');
+  const [mode, setMode] = useState<'none' | 'morning' | 'reminder' | 'review' | 'weekly'>('none');
   const [tasks, setTasks] = useState<any[]>([]);
   const [currentTask, setCurrentTask] = useState<any>(null);
   const [selections, setSelections] = useState<Record<string, string>>({});
@@ -10,6 +10,7 @@ export default function Reminder() {
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState<any>(null);
   const [isReviewDone, setIsReviewDone] = useState(false);
+  const [weeklyData, setWeeklyData] = useState<any>(null);
 
   useEffect(() => {
     const cleanupReminder = window.electronAPI?.onReminderShow?.((task: any) => {
@@ -35,10 +36,16 @@ export default function Reminder() {
       }
     });
 
+    const cleanupWeekly = window.electronAPI?.onWeeklyShow?.((data: any) => {
+      setMode('weekly');
+      setWeeklyData(data);
+    });
+
     return () => {
       if (cleanupReminder) cleanupReminder();
       if (cleanupMorning) cleanupMorning();
       if (cleanupReview) cleanupReview();
+      if (cleanupWeekly) cleanupWeekly();
     };
   }, []);
 
@@ -75,6 +82,13 @@ export default function Reminder() {
   const handleSaveDraft = async () => {
     setLoading(true);
     await window.electronAPI?.saveReview(draft);
+    setLoading(false);
+    window.electronAPI?.hideWindow();
+  };
+
+  const handleWeeklyAction = async (action: string) => {
+    setLoading(true);
+    await window.electronAPI?.handleWeeklyAction?.(action, weeklyData);
     setLoading(false);
     window.electronAPI?.hideWindow();
   };
@@ -325,6 +339,36 @@ export default function Reminder() {
                  )}
                </>
             )}
+          </>
+        {/* === Mode: Weekly === */}
+        {mode === 'weekly' && weeklyData && (
+          <>
+             <div className="flex items-center space-x-2 text-stone-800 font-medium mb-2">
+               <FileText className="w-5 h-5 text-stone-400" />
+               <span className="text-lg">每周复盘</span>
+             </div>
+             
+             <p className="text-stone-600 mb-4 text-[15px] bg-stone-50 p-4 rounded-2xl leading-relaxed" style={{ WebkitAppRegion: 'no-drag' } as any}>
+               {weeklyData.isMissed ? '上周还没有生成每周复盘。' : '准备生成每周复盘。'}
+               <br/>
+               <span className="text-stone-400 text-sm mt-1 inline-block">
+                 范围：{new Date(weeklyData.range.start).toLocaleDateString()} 至 {new Date(weeklyData.range.end).toLocaleDateString()}
+               </span>
+             </p>
+             
+             <div className="flex flex-col gap-2 mt-2" style={{ WebkitAppRegion: 'no-drag' } as any}>
+               <button onClick={() => handleWeeklyAction('now')} disabled={loading} className="w-full py-3 rounded-full bg-stone-900 text-white font-medium hover:bg-stone-800 transition-colors shadow-sm flex items-center justify-center gap-2 text-[15px] outline-none">
+                 {loading ? '生成中...' : <><Sparkles className="w-4 h-4" /> 现在生成并写入</>}
+               </button>
+               <div className="flex gap-2">
+                 <button onClick={() => handleWeeklyAction('later')} disabled={loading} className="flex-1 py-2.5 rounded-full bg-stone-100 text-stone-600 font-medium hover:bg-stone-200 transition-colors text-sm outline-none">
+                   稍后提醒
+                 </button>
+                 <button onClick={() => handleWeeklyAction('skip')} disabled={loading} className="flex-1 py-2.5 rounded-full bg-stone-100 text-stone-600 font-medium hover:bg-stone-200 transition-colors text-sm outline-none">
+                   跳过本周
+                 </button>
+               </div>
+             </div>
           </>
         )}
 

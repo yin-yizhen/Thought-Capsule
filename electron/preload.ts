@@ -35,6 +35,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('review-show', callback);
     return () => ipcRenderer.removeAllListeners('review-show');
   },
+  handleWeeklyAction: (action: string, data: any) => ipcRenderer.invoke('handle-weekly-action', action, data),
+  onWeeklyShow: (callback: (data: any) => void) => {
+    const listener = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('weekly-show', listener);
+    return () => ipcRenderer.removeListener('weekly-show', listener);
+  },
   showThemeContextMenu: () => ipcRenderer.send('show-theme-context-menu'),
   onThemeChange: (callback: (theme: 'pastel' | 'macos-dark' | 'ios-acrylic') => void) => {
     const listener = (_event: any, theme: any) => callback(theme);
