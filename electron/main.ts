@@ -394,6 +394,13 @@ app.whenReady().then(() => {
     entriesStore.setAll(entries);
 
     try {
+      // Secret backdoor for testing weekly review UI
+      if (text.trim() === '测试每周复盘') {
+        const reviewState = reviewStore.getAll();
+        handleWeeklyReviewPrompt('2026-W23', { start: new Date(), end: new Date() }, false, config, reviewState);
+        return { type: 'normal', reply: '每周复盘卡片已强行召唤！' };
+      }
+
       // Call AI
       if (!config.apiKey) {
         return { reply: '已记录，但未配置 API Key，无法分析意图。', type: 'normal' };
