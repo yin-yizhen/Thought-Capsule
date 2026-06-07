@@ -5458,7 +5458,7 @@ var J, qa = !0, Ja = null;
 function Ya() {
 	J = new t({
 		width: 600,
-		height: 250,
+		height: 120,
 		show: !1,
 		frame: !1,
 		transparent: !0,

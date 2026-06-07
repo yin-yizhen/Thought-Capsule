@@ -29,7 +29,7 @@ let tray: Tray | null = null;
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 600,
-    height: 250,
+    height: 120,
     show: false,
     frame: false,
     transparent: true,
