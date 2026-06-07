@@ -729,8 +729,8 @@ ipcMain.handle('generate-review-draft', async () => {
   const config = configStore.getAll();
   const todayStr = new Date().toISOString().split('T')[0];
   
-  // filter today's entries
-  const todayEntries = entries.filter(e => e.timestamp.startsWith(todayStr));
+  // filter all unreviewed entries (so late-night ideas from yesterday carry over)
+  const todayEntries = entries.filter(e => !e.hasReviewed);
   
   try {
     const draft = await generateReviewDraft(todayEntries, tasks, config);
