@@ -16,7 +16,11 @@ export default function Settings() {
     customReviewPrompt: '',
     parentFolderName: '提示助手',
     diaryFolderName: '每日日记',
-    summaryFolderName: '长期总结'
+    summaryFolderName: '长期总结',
+    weeklyReview: {
+      enabled: true,
+      time: '22:30'
+    }
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -139,6 +143,33 @@ export default function Settings() {
                 onChange={e => setConfig({...config, customReviewPrompt: e.target.value})}
                 placeholder="在此处填写你想要的 AI 语气、结构要求。留空则使用默认高质量模板。"
                 className="w-full px-4 py-3 border border-stone-200 rounded-2xl focus:ring-1 focus:ring-stone-900 focus:border-stone-900 outline-none transition-all text-[15px] bg-stone-50/50 focus:bg-white min-h-[120px] resize-y placeholder:text-stone-400"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-5 bg-white p-6 rounded-[24px] shadow-[0_2px_20px_rgba(0,0,0,0.02)] border border-stone-100">
+            <h2 className="text-xs font-semibold text-stone-400 uppercase tracking-widest">每周复盘配置</h2>
+
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="block text-sm font-medium text-stone-700">开启每周复盘</label>
+                <p className="text-[13px] text-stone-400 mt-0.5">汇总一周记录，提炼思维趋势，默认周日晚触发</p>
+              </div>
+              <button 
+                onClick={() => setConfig({...config, weeklyReview: {...(config.weeklyReview || {time: '22:30'}), enabled: !(config.weeklyReview?.enabled !== false)}})}
+                className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors focus:outline-none shadow-inner ${config.weeklyReview?.enabled !== false ? 'bg-stone-900' : 'bg-stone-200'}`}
+              >
+                <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${config.weeklyReview?.enabled !== false ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </div>
+
+            <div className="pt-5 border-t border-stone-100">
+              <label className="block text-sm font-medium text-stone-700 mb-1.5">生成时间（周日）</label>
+              <input 
+                type="time"
+                value={config.weeklyReview?.time || '22:30'}
+                onChange={e => setConfig({...config, weeklyReview: {...(config.weeklyReview || {enabled: true}), time: e.target.value}})}
+                className="w-full px-4 py-3 border border-stone-200 rounded-2xl focus:ring-1 focus:ring-stone-900 focus:border-stone-900 outline-none transition-all text-[15px] bg-stone-50/50 focus:bg-white"
               />
             </div>
           </div>

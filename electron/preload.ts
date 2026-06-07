@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   saveConfig: (config: any) => ipcRenderer.invoke('save-config', config),
   closeSettings: () => ipcRenderer.send('close-settings'),
   getTodayEntries: () => ipcRenderer.invoke('get-today-entries'),
+  getTodayEntryCount: () => ipcRenderer.invoke('get-today-entry-count'),
   checkReviewStatus: () => ipcRenderer.invoke('check-review-status'),
   openTodayReview: () => ipcRenderer.invoke('open-today-review'),
   deleteTodayReview: () => ipcRenderer.invoke('delete-today-review'),

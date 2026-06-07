@@ -309,6 +309,12 @@ app.whenReady().then(() => {
     return entries.filter(e => e.timestamp.startsWith(todayStr));
   });
 
+  ipcMain.handle('get-today-entry-count', () => {
+    const entries = entriesStore.getAll();
+    const todayStr = new Date().toISOString().split('T')[0];
+    return entries.filter(e => e.timestamp.startsWith(todayStr) && e.status === 'analyzed').length;
+  });
+
   ipcMain.handle('get-config', () => {
     return configStore.getAll();
   });
@@ -589,8 +595,132 @@ const reviewStore = new Store<any>('review_state.json', { lastReviewDate: '', la
       reviewState.lastReviewDate = todayStr;
       reviewStore.setAll(reviewState);
     }
+    // 4. Weekly Review Check
+    if (config.weeklyReview?.enabled !== false) {
+      checkWeeklyReview(now, config, reviewState);
+    }
   }, 60000); // Check every minute
 });
+
+import { getISOWeekData, getWeekRange, generateWeeklyReview } from './weekly-review.js';
+
+async function checkWeeklyReview(now: Date, config: any, reviewState: any) {
+  if (!reviewState.weekly_reviews) reviewState.weekly_reviews = {};
+  
+  const [wh, wm] = (config.weeklyReview?.time || '22:30').split(':');
+  
+  let targetDate = new Date(now);
+  const currentDay = targetDate.getDay();
+  if (currentDay === 0 && (now.getHours() * 60 + now.getMinutes() >= parseInt(wh) * 60 + parseInt(wm))) {
+    // Current week is ready
+  } else {
+    // Target previous week
+    const diffToLastSunday = currentDay === 0 ? 7 : currentDay;
+    targetDate.setDate(targetDate.getDate() - diffToLastSunday);
+    targetDate.setHours(parseInt(wh), parseInt(wm), 0, 0);
+  }
+
+  const weekId = getISOWeekData(targetDate);
+  const range = getWeekRange(targetDate);
+  
+  const ws = reviewState.weekly_reviews[weekId] || { status: 'pending' };
+
+  let shouldPrompt = false;
+  let isMissed = false;
+
+  if (ws.status === 'pending') {
+    const triggerTime = new Date(range.end); 
+    triggerTime.setHours(parseInt(wh), parseInt(wm), 0, 0);
+
+    if (now >= triggerTime) {
+      shouldPrompt = true;
+      if (now > new Date(triggerTime.getTime() + 60*60*1000)) { 
+        isMissed = true;
+      }
+    }
+  } else if (ws.status === 'snoozed') {
+    if (ws.next_prompt_at && new Date(ws.next_prompt_at) <= now) {
+      shouldPrompt = true;
+      isMissed = true; // if snoozed, it's definitely late
+    }
+  }
+
+  if (shouldPrompt) {
+    ws.status = 'prompting';
+    reviewState.weekly_reviews[weekId] = ws;
+    reviewStore.setAll(reviewState);
+    
+    handleWeeklyReviewPrompt(weekId, range, isMissed, config, reviewState);
+  }
+}
+
+async function handleWeeklyReviewPrompt(weekId: string, range: any, isMissed: boolean, config: any, reviewState: any) {
+  const msg = isMissed 
+    ? `上周还没有生成每周复盘。\n\n时间范围：${range.start.toISOString().split('T')[0]} 至 ${range.end.toISOString().split('T')[0]}`
+    : `准备生成每周复盘\n\n时间范围：${range.start.toISOString().split('T')[0]} 至 ${range.end.toISOString().split('T')[0]}`;
+
+  const { response } = await dialog.showMessageBox({
+    type: 'question',
+    title: '每周复盘',
+    message: msg,
+    buttons: ['现在生成/直接写入', '今天晚上提醒/稍后', '跳过本周', '取消'],
+    cancelId: 3
+  });
+
+  const ws = reviewState.weekly_reviews[weekId];
+
+  if (response === 0) { // 现在生成
+    ws.status = 'generating';
+    reviewState.weekly_reviews[weekId] = ws;
+    reviewStore.setAll(reviewState);
+    
+    try {
+      const content = await generateWeeklyReview(config, weekId, range, tasksStore, entriesStore);
+      if (config.obsidianPath) {
+        const outDir = path.join(config.obsidianPath, '周期复盘', '每周复盘');
+        if (!fs.existsSync(outDir)) {
+          fs.mkdirSync(outDir, { recursive: true });
+        }
+        let file = path.join(outDir, `${weekId}.md`);
+        if (fs.existsSync(file)) {
+          file = path.join(outDir, `${weekId}_补充.md`);
+        }
+        fs.writeFileSync(file, content, 'utf-8');
+        
+        ws.status = 'generated';
+        dialog.showMessageBox({ type: 'info', title: '每周复盘', message: '每周复盘生成成功并已写入！' });
+      }
+    } catch (e: any) {
+      ws.status = 'snoozed';
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(9, 0, 0, 0);
+      ws.next_prompt_at = tomorrow.toISOString();
+      dialog.showErrorBox('生成失败', e.message);
+    }
+  } else if (response === 1) { // 稍后
+    ws.status = 'snoozed';
+    const next = new Date();
+    if (isMissed) {
+      next.setHours(22, 0, 0, 0); // Tonight 22:00
+      if (next <= new Date()) next.setDate(next.getDate() + 1);
+    } else {
+      next.setHours(next.getHours() + 1); // 1 hour later
+    }
+    ws.next_prompt_at = next.toISOString();
+  } else if (response === 2) { // 跳过
+    ws.status = 'skipped';
+  } else {
+    ws.status = 'snoozed';
+    const next = new Date();
+    next.setHours(22, 0, 0, 0);
+    if (next <= new Date()) next.setDate(next.getDate() + 1);
+    ws.next_prompt_at = next.toISOString();
+  }
+  
+  reviewState.weekly_reviews[weekId] = ws;
+  reviewStore.setAll(reviewState);
+}
 
 import { generateReviewDraft, saveReview, isReviewDoneToday } from './review.js';
 

@@ -18,6 +18,11 @@ export default function TodayEntries() {
         <div className="flex items-center gap-2">
           <History className="w-5 h-5 text-stone-400" />
           <h1 className="text-lg font-medium text-stone-800">今日记录</h1>
+          {entries.length > 0 && (
+            <span className="ml-2 bg-stone-100 text-stone-500 text-sm px-2 py-0.5 rounded-full font-semibold">
+              {entries.length}
+            </span>
+          )}
         </div>
         <button 
           onClick={() => window.electronAPI?.hideWindow()}
