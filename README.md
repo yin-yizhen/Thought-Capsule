@@ -1,73 +1,63 @@
-# React + TypeScript + Vite
+# 💊 思维胶囊 (Mind Capsule)
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+> **极简、无感、智能的个人思维外脑。**
+> 随时随地，一键唤起。你只管倾诉，AI 帮你分类、整理、到期提醒，并无缝归档到你的个人知识库。
 
-Currently, two official plugins are available:
+## ✨ 核心亮点
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+*   **⚡ 极速全局唤起**：无论你正在浏览网页还是写代码，按下快捷键（默认 `Ctrl + ~` 或 `Cmd + ~`）瞬间弹窗，记录灵感只需一秒。
+*   **🧠 AI 意图引擎**：内置智能分类系统。你随便输入一句话，AI 会自动判断它是**普通想法**、**待办事项**、**定时提醒**还是**博客素材**，甚至能自动帮你推算未来时间！
+*   **⏰ 智能时光机（提醒系统）**：
+    *   **精准提醒**：输入“10s后提醒我喝水”，弹窗会准时在右下角（或你拖动的指定位置）弹出。
+    *   **每日复盘**：可自定义早、中、晚提醒，定时推送今天积累的灵感与任务。
+*   **📚 Obsidian 无缝集成**：所有的想法、日志和长文素材，都会自动按目录和日期，静默写入到你的 Obsidian 文件夹，帮你搭建第二大脑。
+*   **🎨 极致 UI 质感**：提供 `柔和马卡龙 (Pastel)`、`MacOS 暗黑玻璃`、`iOS 亚克力` 三大高颜值主题，加上丝滑的微动画和无边框设计，每次记录都是视觉享受。
 
-## React Compiler
+## 🚀 快速上手说明 (供最终用户使用)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+1. **直接运行**：双击下载的 `思维胶囊_vX.X.X.exe` 文件即可直接运行（无需安装的绿色便携版）。
+2. **初始化配置**：
+    * 第一次运行后，请点击主界面左下角的 **⚙️ 设置图标**。
+    * 在【AI 模型配置】中填入你申请的大模型 API Key。
+    * **强烈推荐使用 DeepSeek**（便宜且聪明）：
+        * **API Key**: 填入你获取的 `sk-xxxxxxxx`
+        * **自定义 API 接口地址**: `https://api.deepseek.com/v1`
+        * **模型名称**: `deepseek-chat`
+3. **日常使用**：
+    * 配置完成后，在任何界面按下快捷键，输入你想说的话，按下 `Enter`（或 `Shift + Enter`，可在设置中修改）发送。
+    * 你可以说：“帮我把下周六买书加入待办”、“总结一下今天学到的 AI 知识点”、“一个好主意：开发一款养猫游戏”。剩下的统统交给 AI。
 
-## Expanding the ESLint configuration
+## 🛠️ 开发者指南 (开发环境)
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+本项目基于现代化的前端跨端技术栈构建：`Electron` + `Vite` + `React` + `TailwindCSS`。
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### 安装依赖
+```bash
+npm install
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### 本地开发 (热更新)
+```bash
+npm run dev
 ```
+
+### 构建打包 (生成 EXE)
+如果你修改了代码并想生成新的独立 EXE 分发给朋友，只需执行：
+```bash
+npm run package
+```
+打包成功后，可执行文件会生成在项目目录下的 `release/` 文件夹中。
+
+## ⚙️ 快捷键说明
+
+| 功能 | 快捷键 | 备注 |
+| :--- | :--- | :--- |
+| **唤起/隐藏主面板** | `Ctrl + ~` (Win) / `Cmd + ~` (Mac) | 可以在设置中自定义 |
+| **发送内容** | `Enter` 或 `Shift + Enter` | 可以在设置中自由切换 |
+| **取消发送** | `Esc` | 输入框失去焦点或按 Esc 自动隐藏 |
+
+## 📦 数据安全隐私说明
+
+**思维胶囊极其注重您的隐私安全：**
+* 所有的日记、想法内容、以及您的私密 API 密钥，均保存在您系统的本地用户目录中（不会被打包到程序中）。
+* 程序为纯本地客户端，除了与您配置的 AI 模型接口通信外，绝不会将您的任何数据上传到任何第三方服务器。

@@ -578,7 +578,6 @@ app.whenReady().then(() => {
 
     // 2. Exact Reminders Check
     const dueReminders = reminders.filter(r => r.status === 'pending' && new Date(r.remindAt) <= now);
-    require('node:fs').appendFileSync('d:/codex-study/quick-note/debug.log', 'now: ' + now.toISOString() + ', dueReminders: ' + dueReminders.length + ', windowVisible: ' + (reminderWindow ? reminderWindow.isVisible() : 'null') + '\n');
     if (dueReminders.length > 0 && (!reminderWindow || !reminderWindow.isVisible())) {
       showReminderWindow(dueReminders[0]);
       dueReminders[0].status = 'shown'; // Prevent loop
