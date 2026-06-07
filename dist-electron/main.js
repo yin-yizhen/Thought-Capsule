@@ -20,18 +20,18 @@ function h(e, t, n, r) {
 }
 //#endregion
 //#region node_modules/openai/internal/utils/uuid.mjs
-var g = function() {
+var ee = function() {
 	let { crypto: e } = globalThis;
-	if (e?.randomUUID) return g = e.randomUUID.bind(e), e.randomUUID();
+	if (e?.randomUUID) return ee = e.randomUUID.bind(e), e.randomUUID();
 	let t = new Uint8Array(1), n = e ? () => e.getRandomValues(t)[0] : () => Math.random() * 255 & 255;
 	return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (e) => (e ^ n() & 15 >> e / 4).toString(16));
 };
 //#endregion
 //#region node_modules/openai/internal/errors.mjs
-function ee(e) {
+function te(e) {
 	return typeof e == "object" && !!e && ("name" in e && e.name === "AbortError" || "message" in e && String(e.message).includes("FetchRequestCanceledException"));
 }
-var _ = (e) => {
+var g = (e) => {
 	if (e instanceof Error) return e;
 	if (typeof e == "object" && e) {
 		try {
@@ -45,7 +45,7 @@ var _ = (e) => {
 		} catch {}
 	}
 	return Error(e);
-}, v = class extends Error {}, y = class e extends v {
+}, _ = class extends Error {}, v = class e extends _ {
 	constructor(t, n, r, i) {
 		super(`${e.makeMessage(t, n, r)}`), this.status = t, this.headers = i, this.requestID = i?.get("x-request-id"), this.error = n;
 		let a = n;
@@ -56,30 +56,30 @@ var _ = (e) => {
 		return e && r ? `${e} ${r}` : e ? `${e} status code (no body)` : r || "(no status code or body)";
 	}
 	static generate(t, n, r, i) {
-		if (!t || !i) return new te({
+		if (!t || !i) return new ne({
 			message: r,
-			cause: _(n)
+			cause: g(n)
 		});
 		let a = n?.error;
 		return t === 400 ? new re(t, a, r, i) : t === 401 ? new ie(t, a, r, i) : t === 403 ? new ae(t, a, r, i) : t === 404 ? new oe(t, a, r, i) : t === 409 ? new se(t, a, r, i) : t === 422 ? new ce(t, a, r, i) : t === 429 ? new le(t, a, r, i) : t >= 500 ? new ue(t, a, r, i) : new e(t, a, r, i);
 	}
-}, b = class extends y {
+}, y = class extends v {
 	constructor({ message: e } = {}) {
 		super(void 0, void 0, e || "Request was aborted.", void 0);
 	}
-}, te = class extends y {
+}, ne = class extends v {
 	constructor({ message: e, cause: t }) {
 		super(void 0, void 0, e || "Connection error.", void 0), t && (this.cause = t);
 	}
-}, ne = class extends te {
+}, b = class extends ne {
 	constructor({ message: e } = {}) {
 		super({ message: e ?? "Request timed out." });
 	}
-}, re = class extends y {}, ie = class extends y {}, ae = class extends y {}, oe = class extends y {}, se = class extends y {}, ce = class extends y {}, le = class extends y {}, ue = class extends y {}, de = class extends v {
+}, re = class extends v {}, ie = class extends v {}, ae = class extends v {}, oe = class extends v {}, se = class extends v {}, ce = class extends v {}, le = class extends v {}, ue = class extends v {}, de = class extends _ {
 	constructor() {
 		super("Could not parse response content as the length limit was reached");
 	}
-}, fe = class extends v {
+}, fe = class extends _ {
 	constructor() {
 		super("Could not parse response content as the request was rejected by the content filter");
 	}
@@ -87,7 +87,7 @@ var _ = (e) => {
 	constructor(e) {
 		super(e);
 	}
-}, me = class extends y {
+}, me = class extends v {
 	constructor(e, t, n) {
 		let r = "OAuth2 authentication error", i;
 		if (t && typeof t == "object") {
@@ -98,7 +98,7 @@ var _ = (e) => {
 		}
 		super(e, t, r, n), this.error_code = i;
 	}
-}, he = class extends v {
+}, he = class extends _ {
 	constructor(e, t, n) {
 		super(e), this.provider = t, this.cause = n;
 	}
@@ -118,8 +118,8 @@ function Se(e) {
 	return typeof e == "object" && !!e && !Array.isArray(e);
 }
 var Ce = (e, t) => {
-	if (typeof t != "number" || !Number.isInteger(t)) throw new v(`${e} must be an integer`);
-	if (t < 0) throw new v(`${e} must be a positive integer`);
+	if (typeof t != "number" || !Number.isInteger(t)) throw new _(`${e} must be an integer`);
+	if (t < 0) throw new _(`${e} must be a positive integer`);
 	return t;
 }, we = (e) => {
 	try {
@@ -364,49 +364,49 @@ function Qe(e) {
 	return typeof e == "string" || typeof e == "number" || typeof e == "boolean" || typeof e == "symbol" || typeof e == "bigint";
 }
 var $e = {};
-function et(e, t, n, r, i, a, o, s, c, l, u, d, f, p, m, h, g, ee) {
-	let _ = e, v = ee, y = 0, b = !1;
-	for (; (v = v.get($e)) !== void 0 && !b;) {
-		let t = v.get(e);
-		if (y += 1, t !== void 0) {
-			if (t === y) throw RangeError("Cyclic object value");
-			b = !0;
+function et(e, t, n, r, i, a, o, s, c, l, u, d, f, p, m, h, ee, te) {
+	let g = e, _ = te, v = 0, y = !1;
+	for (; (_ = _.get($e)) !== void 0 && !y;) {
+		let t = _.get(e);
+		if (v += 1, t !== void 0) {
+			if (t === v) throw RangeError("Cyclic object value");
+			y = !0;
 		}
-		v.get($e) === void 0 && (y = 0);
+		_.get($e) === void 0 && (v = 0);
 	}
-	if (typeof l == "function" ? _ = l(t, _) : _ instanceof Date ? _ = f?.(_) : n === "comma" && x(_) && (_ = Je(_, function(e) {
+	if (typeof l == "function" ? g = l(t, g) : g instanceof Date ? g = f?.(g) : n === "comma" && x(g) && (g = Je(g, function(e) {
 		return e instanceof Date ? f?.(e) : e;
-	})), _ === null) {
-		if (a) return c && !h ? c(t, C.encoder, g, "key", p) : t;
-		_ = "";
+	})), g === null) {
+		if (a) return c && !h ? c(t, C.encoder, ee, "key", p) : t;
+		g = "";
 	}
-	if (Qe(_) || qe(_)) {
+	if (Qe(g) || qe(g)) {
 		if (c) {
-			let e = h ? t : c(t, C.encoder, g, "key", p);
-			return [m?.(e) + "=" + m?.(c(_, C.encoder, g, "value", p))];
+			let e = h ? t : c(t, C.encoder, ee, "key", p);
+			return [m?.(e) + "=" + m?.(c(g, C.encoder, ee, "value", p))];
 		}
-		return [m?.(t) + "=" + m?.(String(_))];
+		return [m?.(t) + "=" + m?.(String(g))];
 	}
-	let te = [];
-	if (_ === void 0) return te;
-	let ne;
-	if (n === "comma" && x(_)) h && c && (_ = Je(_, c)), ne = [{ value: _.length > 0 ? _.join(",") || null : void 0 }];
-	else if (x(l)) ne = l;
+	let ne = [];
+	if (g === void 0) return ne;
+	let b;
+	if (n === "comma" && x(g)) h && c && (g = Je(g, c)), b = [{ value: g.length > 0 ? g.join(",") || null : void 0 }];
+	else if (x(l)) b = l;
 	else {
-		let e = Object.keys(_);
-		ne = u ? e.sort(u) : e;
+		let e = Object.keys(g);
+		b = u ? e.sort(u) : e;
 	}
-	let re = s ? String(t).replace(/\./g, "%2E") : String(t), ie = r && x(_) && _.length === 1 ? re + "[]" : re;
-	if (i && x(_) && _.length === 0) return ie + "[]";
-	for (let t = 0; t < ne.length; ++t) {
-		let v = ne[t], b = typeof v == "object" && v.value !== void 0 ? v.value : _[v];
-		if (o && b === null) continue;
-		let re = d && s ? v.replace(/\./g, "%2E") : v, ae = x(_) ? typeof n == "function" ? n(ie, re) : ie : ie + (d ? "." + re : "[" + re + "]");
-		ee.set(e, y);
+	let re = s ? String(t).replace(/\./g, "%2E") : String(t), ie = r && x(g) && g.length === 1 ? re + "[]" : re;
+	if (i && x(g) && g.length === 0) return ie + "[]";
+	for (let t = 0; t < b.length; ++t) {
+		let _ = b[t], y = typeof _ == "object" && _.value !== void 0 ? _.value : g[_];
+		if (o && y === null) continue;
+		let re = d && s ? _.replace(/\./g, "%2E") : _, ae = x(g) ? typeof n == "function" ? n(ie, re) : ie : ie + (d ? "." + re : "[" + re + "]");
+		te.set(e, v);
 		let oe = /* @__PURE__ */ new WeakMap();
-		oe.set($e, ee), Xe(te, et(b, ae, n, r, i, a, o, s, n === "comma" && h && x(_) ? null : c, l, u, d, f, p, m, h, g, oe));
+		oe.set($e, te), Xe(ne, et(y, ae, n, r, i, a, o, s, n === "comma" && h && x(g) ? null : c, l, u, d, f, p, m, h, ee, oe));
 	}
-	return te;
+	return ne;
 }
 function tt(e = C) {
 	if (e.allowEmptyArrays !== void 0 && typeof e.allowEmptyArrays != "boolean") throw TypeError("`allowEmptyArrays` option can only be `true` or `false`, when provided");
@@ -581,7 +581,7 @@ var vt = (e) => (e.options && (e.options = { ...e.options }, delete e.options.he
 	static fromSSEResponse(t, n, r, i) {
 		let a = !1, o = r ? E(r) : console;
 		async function* s() {
-			if (a) throw new v("Cannot iterate over a consumed stream, use `.tee()` to split the stream.");
+			if (a) throw new _("Cannot iterate over a consumed stream, use `.tee()` to split the stream.");
 			a = !0;
 			let e = !1;
 			try {
@@ -597,7 +597,7 @@ var vt = (e) => (e.options && (e.options = { ...e.options }, delete e.options.he
 						} catch (e) {
 							throw o.error("Could not parse message into JSON:", r.data), o.error("From chunk:", r.raw), e;
 						}
-						if (e && e.error) throw new y(void 0, e.error, void 0, t.headers);
+						if (e && e.error) throw new v(void 0, e.error, void 0, t.headers);
 						yield i ? {
 							event: r.event,
 							data: e
@@ -609,7 +609,7 @@ var vt = (e) => (e.options && (e.options = { ...e.options }, delete e.options.he
 						} catch (e) {
 							throw console.error("Could not parse message into JSON:", r.data), console.error("From chunk:", r.raw), e;
 						}
-						if (r.event == "error") throw new y(void 0, e.error, e.message, void 0);
+						if (r.event == "error") throw new v(void 0, e.error, e.message, void 0);
 						yield {
 							event: r.event,
 							data: e
@@ -618,7 +618,7 @@ var vt = (e) => (e.options && (e.options = { ...e.options }, delete e.options.he
 				}
 				e = !0;
 			} catch (e) {
-				if (ee(e)) return;
+				if (te(e)) return;
 				throw e;
 			} finally {
 				e || n.abort();
@@ -634,14 +634,14 @@ var vt = (e) => (e.options && (e.options = { ...e.options }, delete e.options.he
 			for (let t of e.flush()) yield t;
 		}
 		async function* o() {
-			if (i) throw new v("Cannot iterate over a consumed stream, use `.tee()` to split the stream.");
+			if (i) throw new _("Cannot iterate over a consumed stream, use `.tee()` to split the stream.");
 			i = !0;
 			let e = !1;
 			try {
 				for await (let t of a()) e || t && (yield JSON.parse(t));
 				e = !0;
 			} catch (e) {
-				if (ee(e)) return;
+				if (te(e)) return;
 				throw e;
 			} finally {
 				e || n.abort();
@@ -685,7 +685,7 @@ var vt = (e) => (e.options && (e.options = { ...e.options }, delete e.options.he
 	}
 };
 async function* xt(e, t) {
-	if (!e.body) throw t.abort(), globalThis.navigator !== void 0 && globalThis.navigator.product === "ReactNative" ? new v("The default react-native fetch implementation does not support streaming. Please use expo/fetch: https://docs.expo.dev/versions/latest/sdk/expo/#expofetch-api") : new v("Attempted to iterate over a response with no body");
+	if (!e.body) throw t.abort(), globalThis.navigator !== void 0 && globalThis.navigator.product === "ReactNative" ? new _("The default react-native fetch implementation does not support streaming. Please use expo/fetch: https://docs.expo.dev/versions/latest/sdk/expo/#expofetch-api") : new _("Attempted to iterate over a response with no body");
 	let n = new Ct(), r = new lt(), i = Re(e.body);
 	for await (let e of St(i)) for (let t of r.decode(e)) {
 		let e = n.decode(t);
@@ -809,7 +809,7 @@ var kt, At = class {
 	}
 	async getNextPage() {
 		let e = this.nextPageRequestOptions();
-		if (!e) throw new v("No next page expected; please check `.hasNextPage()` before calling `.getNextPage()`.");
+		if (!e) throw new _("No next page expected; please check `.hasNextPage()` before calling `.getNextPage()`.");
 		return await h(this, kt, "f").requestAPIList(this.constructor, e);
 	}
 	async *iterPages() {
@@ -937,7 +937,7 @@ var kt, At = class {
 			try {
 				n = JSON.parse(e);
 			} catch {}
-			throw t.status === 400 || t.status === 401 || t.status === 403 ? new me(t.status, n, t.headers) : y.generate(t.status, n, `Token exchange failed with status ${t.status}`, t.headers);
+			throw t.status === 400 || t.status === 401 || t.status === 403 ? new me(t.status, n, t.headers) : v.generate(t.status, n, `Token exchange failed with status ${t.status}`, t.headers);
 		}
 		let n = await t.json(), r = n.expires_in || 3600, i = Date.now() + r * 1e3;
 		return this.cachedToken = {
@@ -1073,7 +1073,7 @@ var tn = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.create(null)), M =
 			let r = " ".repeat(n.start - e), i = "^".repeat(n.length);
 			return e = n.start + n.length, t + r + i;
 		}, "");
-		throw new v(`Path parameters result in path with invalid segments:\n${i.map((e) => e.error).join("\n")}\n${a}\n${t}`);
+		throw new _(`Path parameters result in path with invalid segments:\n${i.map((e) => e.error).join("\n")}\n${a}\n${t}`);
 	}
 	return a;
 })(en), nn = class extends j {
@@ -1149,12 +1149,12 @@ function fn(e) {
 	return an(e.response_format) ? !0 : e.tools?.some((e) => on(e) || e.type === "function" && e.function.strict === !0) ?? !1;
 }
 function pn(e) {
-	for (let t of e || []) if (t.type !== "function") throw new v(`Currently only \`function\` tool calls are supported; Received \`${t.type}\``);
+	for (let t of e || []) if (t.type !== "function") throw new _(`Currently only \`function\` tool calls are supported; Received \`${t.type}\``);
 }
 function mn(e) {
 	for (let t of e ?? []) {
-		if (t.type !== "function") throw new v(`Currently only \`function\` tool types support auto-parsing; Received \`${t.type}\``);
-		if (t.function.strict !== !0) throw new v(`The \`${t.function.name}\` tool is not marked with \`strict: true\`. Only strict function tools can be auto-parsed`);
+		if (t.type !== "function") throw new _(`Currently only \`function\` tool types support auto-parsing; Received \`${t.type}\``);
+		if (t.function.strict !== !0) throw new _(`The \`${t.function.name}\` tool is not marked with \`strict: true\`. Only strict function tools can be auto-parsed`);
 	}
 }
 //#endregion
@@ -1229,13 +1229,13 @@ var hn = (e) => e?.role === "assistant", gn = (e) => e?.role === "tool", _n, vn,
 	_emitFinal() {}
 };
 vn = /* @__PURE__ */ new WeakMap(), yn = /* @__PURE__ */ new WeakMap(), bn = /* @__PURE__ */ new WeakMap(), xn = /* @__PURE__ */ new WeakMap(), Sn = /* @__PURE__ */ new WeakMap(), Cn = /* @__PURE__ */ new WeakMap(), N = /* @__PURE__ */ new WeakMap(), wn = /* @__PURE__ */ new WeakMap(), Tn = /* @__PURE__ */ new WeakMap(), En = /* @__PURE__ */ new WeakMap(), Dn = /* @__PURE__ */ new WeakMap(), _n = /* @__PURE__ */ new WeakSet(), On = function(e) {
-	if (m(this, Tn, !0, "f"), e instanceof Error && e.name === "AbortError" && (e = new b()), e instanceof b) return m(this, En, !0, "f"), this._emit("abort", e);
-	if (e instanceof v) return this._emit("error", e);
+	if (m(this, Tn, !0, "f"), e instanceof Error && e.name === "AbortError" && (e = new y()), e instanceof y) return m(this, En, !0, "f"), this._emit("abort", e);
+	if (e instanceof _) return this._emit("error", e);
 	if (e instanceof Error) {
-		let t = new v(e.message);
+		let t = new _(e.message);
 		return t.cause = e, this._emit("error", t);
 	}
-	return this._emit("error", new v(String(e)));
+	return this._emit("error", new _(String(e)));
 };
 //#endregion
 //#region node_modules/openai/lib/RunnableFunction.mjs
@@ -1262,7 +1262,7 @@ var P, jn, Mn, Nn, Pn, Fn, In, Ln, Rn = 10, zn = class extends kn {
 	async finalChatCompletion() {
 		await this.done();
 		let e = this._chatCompletions[this._chatCompletions.length - 1];
-		if (!e) throw new v("stream ended without producing a ChatCompletion");
+		if (!e) throw new _("stream ended without producing a ChatCompletion");
 		return e;
 	}
 	async finalContent() {
@@ -1314,7 +1314,7 @@ var P, jn, Mn, Nn, Pn, Fn, In, Ln, Rn = 10, zn = class extends kn {
 	async _runTools(e, t, n) {
 		let r = "tool", { tool_choice: i = "auto", stream: a, ...o } = t, s = typeof i != "string" && i.type === "function" && i?.function?.name, { maxChatCompletions: c = Rn } = n || {}, l = t.tools.map((e) => {
 			if (on(e)) {
-				if (!e.$callback) throw new v("Tool given to `.runTools()` that does not have an associated function");
+				if (!e.$callback) throw new _("Tool given to `.runTools()` that does not have an associated function");
 				return {
 					type: "function",
 					function: {
@@ -1347,7 +1347,7 @@ var P, jn, Mn, Nn, Pn, Fn, In, Ln, Rn = 10, zn = class extends kn {
 				tools: d,
 				messages: [...this.messages]
 			}, n)).choices[0]?.message;
-			if (!t) throw new v("missing message in ChatCompletion response");
+			if (!t) throw new _("missing message in ChatCompletion response");
 			if (!t.tool_calls?.length) return;
 			for (let e of t.tool_calls) {
 				if (e.type !== "function") continue;
@@ -1403,7 +1403,7 @@ P = /* @__PURE__ */ new WeakSet(), jn = function() {
 			refusal: t.refusal ?? null
 		};
 	}
-	throw new v("stream ended without producing a ChatCompletionMessage with role=assistant");
+	throw new _("stream ended without producing a ChatCompletionMessage with role=assistant");
 }, Nn = function() {
 	for (let e = this.messages.length - 1; e >= 0; e--) {
 		let t = this.messages[e];
@@ -1423,7 +1423,7 @@ P = /* @__PURE__ */ new WeakSet(), jn = function() {
 	for (let { usage: t } of this._chatCompletions) t && (e.completion_tokens += t.completion_tokens, e.prompt_tokens += t.prompt_tokens, e.total_tokens += t.total_tokens);
 	return e;
 }, In = function(e) {
-	if (e.n != null && e.n > 1) throw new v("ChatCompletion convenience helpers only support n=1 at this time. To use n>1, please use chat.completions.create() directly.");
+	if (e.n != null && e.n > 1) throw new _("ChatCompletion convenience helpers only support n=1 at this time. To use n>1, please use chat.completions.create() directly.");
 }, Ln = function(e) {
 	return typeof e == "string" ? e : e === void 0 ? "undefined" : JSON.stringify(e);
 };
@@ -1586,7 +1586,7 @@ var Wn = (e, t) => {
 		});
 		this._connected();
 		for await (let e of i) h(this, I, "m", Yn).call(this, e);
-		if (i.controller.signal?.aborted) throw new b();
+		if (i.controller.signal?.aborted) throw new y();
 		return this._addChatCompletion(h(this, I, "m", Qn).call(this));
 	}
 	async _fromReadableStream(e, t) {
@@ -1594,7 +1594,7 @@ var Wn = (e, t) => {
 		n && (n.aborted && this.controller.abort(), n.addEventListener("abort", () => this.controller.abort())), h(this, I, "m", qn).call(this), this._connected();
 		let r = bt.fromReadableStream(e, this.controller), i;
 		for await (let e of r) i && i !== e.id && this._addChatCompletion(h(this, I, "m", Qn).call(this)), h(this, I, "m", Yn).call(this, e), i = e.id;
-		if (r.controller.signal?.aborted) throw new b();
+		if (r.controller.signal?.aborted) throw new y();
 		return this._addChatCompletion(h(this, I, "m", Qn).call(this));
 	}
 	[(L = /* @__PURE__ */ new WeakMap(), Kn = /* @__PURE__ */ new WeakMap(), R = /* @__PURE__ */ new WeakMap(), I = /* @__PURE__ */ new WeakSet(), qn = function() {
@@ -1669,9 +1669,9 @@ var Wn = (e, t) => {
 		}
 		e.message.refusal && !t.refusal_done && (t.refusal_done = !0, this._emit("refusal.done", { refusal: e.message.refusal })), e.logprobs?.content && !t.logprobs_content_done && (t.logprobs_content_done = !0, this._emit("logprobs.content.done", { content: e.logprobs.content })), e.logprobs?.refusal && !t.logprobs_refusal_done && (t.logprobs_refusal_done = !0, this._emit("logprobs.refusal.done", { refusal: e.logprobs.refusal }));
 	}, Qn = function() {
-		if (this.ended) throw new v("stream has ended, this shouldn't happen");
+		if (this.ended) throw new _("stream has ended, this shouldn't happen");
 		let e = h(this, R, "f");
-		if (!e) throw new v("request ended without sending any chunks");
+		if (!e) throw new _("request ended without sending any chunks");
 		return m(this, R, void 0, "f"), m(this, Kn, [], "f"), nr(e, h(this, L, "f"));
 	}, $n = function() {
 		let e = h(this, L, "f")?.response_format;
@@ -1701,10 +1701,10 @@ var Wn = (e, t) => {
 				if (s === "content_filter") throw new fe();
 			}
 			if (Object.assign(e, u), !o) continue;
-			let { content: d, refusal: f, function_call: p, role: m, tool_calls: g, ...ee } = o;
-			if (Object.assign(e.message, ee), f && (e.message.refusal = (e.message.refusal || "") + f), m && (e.message.role = m), p && (e.message.function_call ? (p.name && (e.message.function_call.name = p.name), p.arguments && ((r = e.message.function_call).arguments ?? (r.arguments = ""), e.message.function_call.arguments += p.arguments)) : e.message.function_call = p), d && (e.message.content = (e.message.content || "") + d, !e.message.refusal && h(this, I, "m", $n).call(this) && (e.message.parsed = Gn(e.message.content))), g) {
+			let { content: d, refusal: f, function_call: p, role: m, tool_calls: ee, ...te } = o;
+			if (Object.assign(e.message, te), f && (e.message.refusal = (e.message.refusal || "") + f), m && (e.message.role = m), p && (e.message.function_call ? (p.name && (e.message.function_call.name = p.name), p.arguments && ((r = e.message.function_call).arguments ?? (r.arguments = ""), e.message.function_call.arguments += p.arguments)) : e.message.function_call = p), d && (e.message.content = (e.message.content || "") + d, !e.message.refusal && h(this, I, "m", $n).call(this) && (e.message.parsed = Gn(e.message.content))), ee) {
 				e.message.tool_calls || (e.message.tool_calls = []);
-				for (let { index: t, id: n, type: r, function: a, ...o } of g) {
+				for (let { index: t, id: n, type: r, function: a, ...o } of ee) {
 					let s = (i = e.message.tool_calls)[t] ?? (i[t] = {});
 					Object.assign(s, o), n && (s.id = n), r && (s.type = r), a && (s.function ??= {
 						name: a.name ?? "",
@@ -1764,13 +1764,13 @@ function nr(e, t) {
 		...s,
 		id: n,
 		choices: r.map(({ message: t, finish_reason: n, index: r, logprobs: i, ...a }) => {
-			if (!n) throw new v(`missing finish_reason for choice ${r}`);
+			if (!n) throw new _(`missing finish_reason for choice ${r}`);
 			let { content: o = null, function_call: s, tool_calls: c, ...l } = t, u = t.role;
-			if (!u) throw new v(`missing role for choice ${r}`);
+			if (!u) throw new _(`missing role for choice ${r}`);
 			if (s) {
 				let { arguments: e, name: c } = s;
-				if (e == null) throw new v(`missing function_call.arguments for choice ${r}`);
-				if (!c) throw new v(`missing function_call.name for choice ${r}`);
+				if (e == null) throw new _(`missing function_call.arguments for choice ${r}`);
+				if (!c) throw new _(`missing function_call.name for choice ${r}`);
 				return {
 					...a,
 					message: {
@@ -1799,10 +1799,10 @@ function nr(e, t) {
 					refusal: t.refusal ?? null,
 					tool_calls: c.map((t, n) => {
 						let { function: i, type: a, id: o, ...s } = t, { arguments: c, name: l, ...u } = i || {};
-						if (o == null) throw new v(`missing choices[${r}].tool_calls[${n}].id\n${rr(e)}`);
-						if (a == null) throw new v(`missing choices[${r}].tool_calls[${n}].type\n${rr(e)}`);
-						if (l == null) throw new v(`missing choices[${r}].tool_calls[${n}].function.name\n${rr(e)}`);
-						if (c == null) throw new v(`missing choices[${r}].tool_calls[${n}].function.arguments\n${rr(e)}`);
+						if (o == null) throw new _(`missing choices[${r}].tool_calls[${n}].id\n${rr(e)}`);
+						if (a == null) throw new _(`missing choices[${r}].tool_calls[${n}].type\n${rr(e)}`);
+						if (l == null) throw new _(`missing choices[${r}].tool_calls[${n}].function.name\n${rr(e)}`);
+						if (c == null) throw new _(`missing choices[${r}].tool_calls[${n}].function.arguments\n${rr(e)}`);
 						return {
 							...s,
 							id: o,
@@ -3104,7 +3104,7 @@ var Jr = class extends j {
 		n && (n.aborted && this.controller.abort(), n.addEventListener("abort", () => this.controller.abort())), this._connected();
 		let r = bt.fromReadableStream(e, this.controller);
 		for await (let e of r) h(this, H, "m", ci).call(this, e);
-		if (r.controller.signal?.aborted) throw new b();
+		if (r.controller.signal?.aborted) throw new y();
 		return this._addRun(h(this, H, "m", li).call(this));
 	}
 	toReadableStream() {
@@ -3132,7 +3132,7 @@ var Jr = class extends j {
 		});
 		this._connected();
 		for await (let e of o) h(this, H, "m", ci).call(this, e);
-		if (o.controller.signal?.aborted) throw new b();
+		if (o.controller.signal?.aborted) throw new y();
 		return this._addRun(h(this, H, "m", li).call(this));
 	}
 	static createThreadAssistantStream(e, t, n) {
@@ -3189,7 +3189,7 @@ var Jr = class extends j {
 		});
 		this._connected();
 		for await (let e of a) h(this, H, "m", ci).call(this, e);
-		if (a.controller.signal?.aborted) throw new b();
+		if (a.controller.signal?.aborted) throw new y();
 		return this._addRun(h(this, H, "m", li).call(this));
 	}
 	async _createAssistantStream(e, t, n, r) {
@@ -3204,7 +3204,7 @@ var Jr = class extends j {
 		});
 		this._connected();
 		for await (let e of o) h(this, H, "m", ci).call(this, e);
-		if (o.controller.signal?.aborted) throw new b();
+		if (o.controller.signal?.aborted) throw new y();
 		return this._addRun(h(this, H, "m", li).call(this));
 	}
 	static accumulateDelta(e, t) {
@@ -3292,7 +3292,7 @@ Qr = _i, ci = function(e) {
 		default:
 	}
 }, li = function() {
-	if (this.ended) throw new v("stream has ended, this shouldn't happen");
+	if (this.ended) throw new _("stream has ended, this shouldn't happen");
 	if (!h(this, ti, "f")) throw Error("Final run has not been received");
 	return h(this, ti, "f");
 }, ui = function(e) {
@@ -3921,7 +3921,7 @@ var ji = class extends j {
 			"error",
 			"deleted"
 		]), i = Date.now(), a = await this.retrieve(e);
-		for (; !a.status || !r.has(a.status);) if (await Te(t), a = await this.retrieve(e), Date.now() - i > n) throw new ne({ message: `Giving up on waiting for file ${e} to finish processing after ${n} milliseconds.` });
+		for (; !a.status || !r.has(a.status);) if (await Te(t), a = await this.retrieve(e), Date.now() - i > n) throw new b({ message: `Giving up on waiting for file ${e} to finish processing after ${n} milliseconds.` });
 		return a;
 	}
 }, Mi = class extends j {}, Ni = class extends j {
@@ -4262,7 +4262,7 @@ var na, ra, ia, aa, oa, sa, ca, la, ua = class e extends kn {
 			signal: this.controller.signal
 		}), this._connected();
 		for await (let e of i) h(this, na, "m", sa).call(this, e, a);
-		if (i.controller.signal?.aborted) throw new b();
+		if (i.controller.signal?.aborted) throw new y();
 		return h(this, na, "m", ca).call(this);
 	}
 	[(ra = /* @__PURE__ */ new WeakMap(), ia = /* @__PURE__ */ new WeakMap(), aa = /* @__PURE__ */ new WeakMap(), na = /* @__PURE__ */ new WeakSet(), oa = function() {
@@ -4275,11 +4275,11 @@ var na, ra, ia, aa, oa, sa, ca, la, ua = class e extends kn {
 		switch (n("event", e), e.type) {
 			case "response.output_text.delta": {
 				let t = r.output[e.output_index];
-				if (!t) throw new v(`missing output at index ${e.output_index}`);
+				if (!t) throw new _(`missing output at index ${e.output_index}`);
 				if (t.type === "message") {
 					let r = t.content[e.content_index];
-					if (!r) throw new v(`missing content at index ${e.content_index}`);
-					if (r.type !== "output_text") throw new v(`expected content to be 'output_text', got ${r.type}`);
+					if (!r) throw new _(`missing content at index ${e.content_index}`);
+					if (r.type !== "output_text") throw new _(`expected content to be 'output_text', got ${r.type}`);
 					n("response.output_text.delta", {
 						...e,
 						snapshot: r.text
@@ -4289,7 +4289,7 @@ var na, ra, ia, aa, oa, sa, ca, la, ua = class e extends kn {
 			}
 			case "response.function_call_arguments.delta": {
 				let t = r.output[e.output_index];
-				if (!t) throw new v(`missing output at index ${e.output_index}`);
+				if (!t) throw new _(`missing output at index ${e.output_index}`);
 				t.type === "function_call" && n("response.function_call_arguments.delta", {
 					...e,
 					snapshot: t.arguments
@@ -4301,16 +4301,16 @@ var na, ra, ia, aa, oa, sa, ca, la, ua = class e extends kn {
 				break;
 		}
 	}, ca = function() {
-		if (this.ended) throw new v("stream has ended, this shouldn't happen");
+		if (this.ended) throw new _("stream has ended, this shouldn't happen");
 		let e = h(this, ia, "f");
-		if (!e) throw new v("request ended without sending any events");
+		if (!e) throw new _("request ended without sending any events");
 		m(this, ia, void 0, "f");
 		let t = da(e, h(this, ra, "f"));
 		return m(this, aa, t, "f"), t;
 	}, la = function(e) {
 		let t = h(this, ia, "f");
 		if (!t) {
-			if (e.type !== "response.created") throw new v(`When snapshot hasn't been set yet, expected 'response.created' event, got ${e.type}`);
+			if (e.type !== "response.created") throw new _(`When snapshot hasn't been set yet, expected 'response.created' event, got ${e.type}`);
 			return t = m(this, ia, e.response, "f"), t;
 		}
 		switch (e.type) {
@@ -4319,35 +4319,35 @@ var na, ra, ia, aa, oa, sa, ca, la, ua = class e extends kn {
 				break;
 			case "response.content_part.added": {
 				let n = t.output[e.output_index];
-				if (!n) throw new v(`missing output at index ${e.output_index}`);
+				if (!n) throw new _(`missing output at index ${e.output_index}`);
 				let r = n.type, i = e.part;
 				r === "message" && i.type !== "reasoning_text" ? n.content.push(i) : r === "reasoning" && i.type === "reasoning_text" && (n.content ||= [], n.content.push(i));
 				break;
 			}
 			case "response.output_text.delta": {
 				let n = t.output[e.output_index];
-				if (!n) throw new v(`missing output at index ${e.output_index}`);
+				if (!n) throw new _(`missing output at index ${e.output_index}`);
 				if (n.type === "message") {
 					let t = n.content[e.content_index];
-					if (!t) throw new v(`missing content at index ${e.content_index}`);
-					if (t.type !== "output_text") throw new v(`expected content to be 'output_text', got ${t.type}`);
+					if (!t) throw new _(`missing content at index ${e.content_index}`);
+					if (t.type !== "output_text") throw new _(`expected content to be 'output_text', got ${t.type}`);
 					t.text += e.delta;
 				}
 				break;
 			}
 			case "response.function_call_arguments.delta": {
 				let n = t.output[e.output_index];
-				if (!n) throw new v(`missing output at index ${e.output_index}`);
+				if (!n) throw new _(`missing output at index ${e.output_index}`);
 				n.type === "function_call" && (n.arguments += e.delta);
 				break;
 			}
 			case "response.reasoning_text.delta": {
 				let n = t.output[e.output_index];
-				if (!n) throw new v(`missing output at index ${e.output_index}`);
+				if (!n) throw new _(`missing output at index ${e.output_index}`);
 				if (n.type === "reasoning") {
 					let t = n.content?.[e.content_index];
-					if (!t) throw new v(`missing content at index ${e.content_index}`);
-					if (t.type !== "reasoning_text") throw new v(`expected content to be 'reasoning_text', got ${t.type}`);
+					if (!t) throw new _(`missing content at index ${e.content_index}`);
+					if (t.type !== "reasoning_text") throw new _(`expected content to be 'reasoning_text', got ${t.type}`);
 					t.text += e.delta;
 				}
 				break;
@@ -4400,7 +4400,7 @@ var na, ra, ia, aa, oa, sa, ca, la, ua = class e extends kn {
 	async finalResponse() {
 		await this.done();
 		let e = h(this, aa, "f");
-		if (!e) throw new v("stream ended without producing a ChatCompletion");
+		if (!e) throw new _("stream ended without producing a ChatCompletion");
 		return e;
 	}
 };
@@ -4966,9 +4966,9 @@ var Aa, ja, Ma, Na, Pa = "workload-identity-auth", K = class {
 			...s,
 			baseURL: e || "https://api.openai.com/v1"
 		};
-		if (t && o) throw new v("The `apiKey` and `workloadIdentity` options are mutually exclusive");
-		if (!t && !n && !o) throw new v("Missing credentials. Please pass an `apiKey`, `workloadIdentity`, `adminAPIKey`, or set the `OPENAI_API_KEY` or `OPENAI_ADMIN_KEY` environment variable.");
-		if (!c.dangerouslyAllowBrowser && De()) throw new v("It looks like you're running in a browser-like environment.\n\nThis is disabled by default, as it risks exposing your secret API credentials to attackers.\nIf you understand the risks and have appropriate mitigations in place,\nyou can set the `dangerouslyAllowBrowser` option to `true`, e.g.,\n\nnew OpenAI({ apiKey, dangerouslyAllowBrowser: true });\n\nhttps://help.openai.com/en/articles/5112595-best-practices-for-api-key-safety\n");
+		if (t && o) throw new _("The `apiKey` and `workloadIdentity` options are mutually exclusive");
+		if (!t && !n && !o) throw new _("Missing credentials. Please pass an `apiKey`, `workloadIdentity`, `adminAPIKey`, or set the `OPENAI_API_KEY` or `OPENAI_ADMIN_KEY` environment variable.");
+		if (!c.dangerouslyAllowBrowser && De()) throw new _("It looks like you're running in a browser-like environment.\n\nThis is disabled by default, as it risks exposing your secret API credentials to attackers.\nIf you understand the risks and have appropriate mitigations in place,\nyou can set the `dangerouslyAllowBrowser` option to `true`, e.g.,\n\nnew OpenAI({ apiKey, dangerouslyAllowBrowser: true });\n\nhttps://help.openai.com/en/articles/5112595-best-practices-for-api-key-safety\n");
 		this.baseURL = c.baseURL, this.timeout = c.timeout ?? ja.DEFAULT_TIMEOUT, this.logger = c.logger ?? console;
 		let l = "warn";
 		this.logLevel = l, this.logLevel = pt(c.logLevel, "ClientOptions.logLevel", this) ?? pt(Zr("OPENAI_LOG"), "process.env['OPENAI_LOG']", this) ?? l, this.fetchOptions = c.fetchOptions, this.maxRetries = c.maxRetries ?? 2, this.fetch = c.fetch ?? Fe(), m(this, Ma, Be, "f");
@@ -5031,10 +5031,10 @@ var Aa, ja, Ma, Na, Pa = "workload-identity-auth", K = class {
 		return `${this.constructor.name}/JS ${Ee}`;
 	}
 	defaultIdempotencyKey() {
-		return `stainless-node-retry-${g()}`;
+		return `stainless-node-retry-${ee()}`;
 	}
 	makeStatusError(e, t, n, r) {
-		return y.generate(e, t, n, r);
+		return v.generate(e, t, n, r);
 	}
 	async _callApiKey() {
 		let e = this._options.apiKey;
@@ -5043,9 +5043,9 @@ var Aa, ja, Ma, Na, Pa = "workload-identity-auth", K = class {
 		try {
 			t = await e();
 		} catch (e) {
-			throw e instanceof v ? e : new v(`Failed to get token from 'apiKey' function: ${e.message}`, { cause: e });
+			throw e instanceof _ ? e : new _(`Failed to get token from 'apiKey' function: ${e.message}`, { cause: e });
 		}
-		if (typeof t != "string" || !t) throw new v(`Expected 'apiKey' function argument to return a string but it returned ${t}`);
+		if (typeof t != "string" || !t) throw new _(`Expected 'apiKey' function argument to return a string but it returned ${t}`);
 		return this.apiKey = t, !0;
 	}
 	buildURL(e, t, n) {
@@ -5100,12 +5100,12 @@ var Aa, ja, Ma, Na, Pa = "workload-identity-auth", K = class {
 			url: o,
 			options: r,
 			headers: a.headers
-		})), r.signal?.aborted) throw new b();
-		let d = r.__security ?? { bearerAuth: !0 }, f = new AbortController(), p = await this.fetchWithAuth(o, a, s, f, d).catch(_), m = Date.now();
+		})), r.signal?.aborted) throw new y();
+		let d = r.__security ?? { bearerAuth: !0 }, f = new AbortController(), p = await this.fetchWithAuth(o, a, s, f, d).catch(g), m = Date.now();
 		if (p instanceof globalThis.Error) {
 			let e = `retrying, ${t} attempts remaining`;
-			if (r.signal?.aborted) throw new b();
-			let i = ee(p) || /timed? ?out/i.test(String(p) + ("cause" in p ? String(p.cause) : ""));
+			if (r.signal?.aborted) throw new y();
+			let i = te(p) || /timed? ?out/i.test(String(p) + ("cause" in p ? String(p.cause) : ""));
 			if (t) return E(this).info(`[${c}] connection ${i ? "timed out" : "failed"} - ${e}`), E(this).debug(`[${c}] connection ${i ? "timed out" : "failed"} (${e})`, vt({
 				retryOfRequestLogID: n,
 				url: o,
@@ -5117,7 +5117,7 @@ var Aa, ja, Ma, Na, Pa = "workload-identity-auth", K = class {
 				url: o,
 				durationMs: m - u,
 				message: p.message
-			})), p instanceof me || p instanceof he ? p : i ? new ne() : new te({
+			})), p instanceof me || p instanceof he ? p : i ? new b() : new ne({
 				message: Fa(p),
 				cause: p
 			});
@@ -5144,7 +5144,7 @@ var Aa, ja, Ma, Na, Pa = "workload-identity-auth", K = class {
 			}
 			let i = e ? "error; no more retries left" : "error; not retryable";
 			E(this).info(`${h} - ${i}`);
-			let a = await p.text().catch((e) => _(e).message), o = we(a), s = o ? void 0 : a;
+			let a = await p.text().catch((e) => g(e).message), o = we(a), s = o ? void 0 : a;
 			throw E(this).debug(`[${c}] response error (${i})`, vt({
 				retryOfRequestLogID: n,
 				url: p.url,
@@ -5318,7 +5318,7 @@ var Aa, ja, Ma, Na, Pa = "workload-identity-auth", K = class {
 };
 ja = K, Ma = /* @__PURE__ */ new WeakMap(), Aa = /* @__PURE__ */ new WeakSet(), Na = function() {
 	return this.baseURL !== "https://api.openai.com/v1";
-}, K.OpenAI = ja, K.DEFAULT_TIMEOUT = 6e5, K.OpenAIError = v, K.APIError = y, K.APIConnectionError = te, K.APIConnectionTimeoutError = ne, K.APIUserAbortError = b, K.NotFoundError = oe, K.ConflictError = se, K.RateLimitError = le, K.BadRequestError = re, K.AuthenticationError = ie, K.InternalServerError = ue, K.PermissionDeniedError = ae, K.UnprocessableEntityError = ce, K.InvalidWebhookSignatureError = pe, K.toFile = Zt, K.Completions = xi, K.Chat = or, K.Embeddings = Di, K.Files = ji, K.Images = Hi, K.Audio = zr, K.Moderations = Wi, K.Models = Ui, K.FineTuning = zi, K.Graders = Vi, K.VectorStores = wa, K.Webhooks = ka, K.Beta = bi, K.Batches = Br, K.Uploads = ba, K.Admin = Nr, K.Responses = ma, K.Realtime = qi, K.Conversations = Ei, K.Evals = Ai, K.Containers = wi, K.Skills = va, K.Videos = Ta;
+}, K.OpenAI = ja, K.DEFAULT_TIMEOUT = 6e5, K.OpenAIError = _, K.APIError = v, K.APIConnectionError = ne, K.APIConnectionTimeoutError = b, K.APIUserAbortError = y, K.NotFoundError = oe, K.ConflictError = se, K.RateLimitError = le, K.BadRequestError = re, K.AuthenticationError = ie, K.InternalServerError = ue, K.PermissionDeniedError = ae, K.UnprocessableEntityError = ce, K.InvalidWebhookSignatureError = pe, K.toFile = Zt, K.Completions = xi, K.Chat = or, K.Embeddings = Di, K.Files = ji, K.Images = Hi, K.Audio = zr, K.Moderations = Wi, K.Models = Ui, K.FineTuning = zi, K.Graders = Vi, K.VectorStores = wa, K.Webhooks = ka, K.Beta = bi, K.Batches = Br, K.Uploads = ba, K.Admin = Nr, K.Responses = ma, K.Realtime = qi, K.Conversations = Ei, K.Evals = Ai, K.Containers = wi, K.Skills = va, K.Videos = Ta;
 function Fa(e) {
 	if (Ia(e)) return "Connection error. This may be caused by passing an undici dispatcher, such as ProxyAgent, that is incompatible with the fetch implementation. If you are using undici's ProxyAgent, pass the fetch implementation from the same undici package: import { fetch, ProxyAgent } from 'undici'; new OpenAI({ fetch, fetchOptions: { dispatcher: new ProxyAgent(...) } });";
 }
@@ -5529,14 +5529,41 @@ function Za() {
 function Qa() {
 	let e = u.join(process.env.VITE_PUBLIC || "", "vite.svg"), t;
 	t = d.existsSync(e) ? s.createFromPath(e) : s.createEmpty();
-	let a = (Z.getAll().shortcut || "CommandOrControl+`").replace("CommandOrControl", "Ctrl"), o = n.buildFromTemplate([
+	let a = Z.getAll(), o = (a.shortcut || "CommandOrControl+`").replace("CommandOrControl", "Ctrl"), c = a.theme || "pastel", f = (e) => {
+		let t = Z.getAll();
+		t.theme = e, Z.setAll(t), J && J.webContents.send("theme-changed", e);
+	}, p = n.buildFromTemplate([
 		{
-			label: `记下想法 (${a})`,
+			label: `记下想法 (${o})`,
 			click: () => $a()
 		},
 		{
 			label: "今日时间线",
 			click: () => Za()
+		},
+		{ type: "separator" },
+		{
+			label: "切换皮肤",
+			submenu: [
+				{
+					label: "方案一：粉彩光晕 (Pastel)",
+					type: "radio",
+					checked: c === "pastel",
+					click: () => f("pastel")
+				},
+				{
+					label: "方案二：macOS 暗黑高级 (Obsidian)",
+					type: "radio",
+					checked: c === "macos-dark",
+					click: () => f("macos-dark")
+				},
+				{
+					label: "方案三：iOS 拟物厚亚克力 (Acrylic)",
+					type: "radio",
+					checked: c === "ios-acrylic",
+					click: () => f("ios-acrylic")
+				}
+			]
 		},
 		{ type: "separator" },
 		{
@@ -5561,7 +5588,7 @@ function Qa() {
 			click: () => i.quit()
 		}
 	]);
-	Ja = new r(t), Ja.setToolTip("思维记录"), Ja.setContextMenu(o);
+	Ja = new r(t), Ja.setToolTip("思维记录"), Ja.setContextMenu(p);
 }
 function $a() {
 	J && (J.show(), J.focus(), J.webContents.send("window-show"));
@@ -5577,7 +5604,8 @@ var Z = new za("config.json", {
 	shortcut: "CommandOrControl+`",
 	parentFolderName: "提示助手",
 	diaryFolderName: "每日日记",
-	summaryFolderName: "长期总结"
+	summaryFolderName: "长期总结",
+	theme: "pastel"
 }), Q = new za("entries.json", []), eo = new za("tasks.json", []), to = new za("reminders.json", []);
 i.whenReady().then(() => {
 	Ya(), Qa();

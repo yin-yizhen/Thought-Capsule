@@ -150,9 +150,25 @@ function createTray() {
   const config = configStore.getAll();
   const shortcutDisplay = (config.shortcut || 'CommandOrControl+`').replace('CommandOrControl', 'Ctrl');
 
+  const currentTheme = config.theme || 'pastel';
+  const changeTheme = (newTheme: 'pastel' | 'macos-dark' | 'ios-acrylic') => {
+    const currentConfig = configStore.getAll();
+    currentConfig.theme = newTheme;
+    configStore.setAll(currentConfig);
+    if (mainWindow) {
+      mainWindow.webContents.send('theme-changed', newTheme);
+    }
+  };
+
   const contextMenu = Menu.buildFromTemplate([
     { label: `记下想法 (${shortcutDisplay})`, click: () => showMainWindow() },
     { label: '今日时间线', click: () => showTodayWindow() },
+    { type: 'separator' },
+    { label: '切换皮肤', submenu: [
+      { label: '方案一：粉彩光晕 (Pastel)', type: 'radio', checked: currentTheme === 'pastel', click: () => changeTheme('pastel') },
+      { label: '方案二：macOS 暗黑高级 (Obsidian)', type: 'radio', checked: currentTheme === 'macos-dark', click: () => changeTheme('macos-dark') },
+      { label: '方案三：iOS 拟物厚亚克力 (Acrylic)', type: 'radio', checked: currentTheme === 'ios-acrylic', click: () => changeTheme('ios-acrylic') }
+    ]},
     { type: 'separator' },
     { label: '立即晚间复盘', click: () => showReviewWindow() },
     { label: '打开笔记文件夹', click: () => {
@@ -199,6 +215,7 @@ interface AppConfig {
   parentFolderName?: string;
   diaryFolderName?: string;
   summaryFolderName?: string;
+  theme?: 'pastel' | 'macos-dark' | 'ios-acrylic';
 }
 
 const configStore = new Store<AppConfig>('config.json', {
@@ -212,7 +229,8 @@ const configStore = new Store<AppConfig>('config.json', {
   shortcut: 'CommandOrControl+`',
   parentFolderName: '提示助手',
   diaryFolderName: '每日日记',
-  summaryFolderName: '长期总结'
+  summaryFolderName: '长期总结',
+  theme: 'pastel'
 });
 
 const entriesStore = new Store<any[]>('entries.json', []);
