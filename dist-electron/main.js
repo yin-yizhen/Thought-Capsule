@@ -5333,18 +5333,26 @@ function Ia(e) {
 }
 //#endregion
 //#region electron/ai.ts
-var La = "\n你是一个个人思维记录助手的意图识别引擎。你的任务是分析用户的自然语言输入，并将其分类并提取结构化信息。\n你必须只返回 JSON 格式的数据，不要包含任何额外的解释或 Markdown 标记（如 ```json）。\n\n分类类型 (type)：\n1. \"idea\": 普通想法\n2. \"task\": 待办（未来某天做，但没有精确时间）\n3. \"reminder\": 精确提醒（明确要求在某个具体时间提醒）\n4. \"learning\": 学习记录\n5. \"blog\": 博客素材\n6. \"summary\": 长期总结素材\n7. \"random\": 稀奇古怪想法\n8. \"normal\": 普通记录（只记录，不涉及上述分类）\n\n输出 JSON 格式要求：\n{\n  \"type\": \"idea | task | reminder | learning | blog | summary | random | normal\",\n  \"topic\": \"提取的主题标签（如 'AI提示词', '博客想法'），如果是普通记录可为空\",\n  \"taskTime\": \"如果 type 是 task，提取用户意图的时间（如 'tomorrow', 'next_week', 'after_3_days'），如果没有明确则为空\",\n  \"reminderTime\": \"如果 type 是 reminder，提取出 ISO 格式的时间字符串（请根据当前时间推算）。如果时间不明确，请置为空，并设置 needsClarification 为 true\",\n  \"needsClarification\": boolean,\n  \"reply\": \"给用户的简短反馈语，例如：'已记录，明早会提醒你：整理提示词模板库'\"\n}\n\n当前时间：${CURRENT_TIME}\n";
+var La = "\n你是一个个人思维记录助手的意图识别引擎。你的任务是分析用户的自然语言输入，并将其分类并提取结构化信息。\n你必须只返回 JSON 格式的数据，不要包含任何额外的解释或 Markdown 标记（如 ```json）。\n\n分类类型 (type)：\n1. \"idea\": 普通想法\n2. \"task\": 待办（未来某天做，但没有精确时间）\n3. \"reminder\": 精确提醒（明确要求在某个具体时间提醒）\n4. \"learning\": 学习记录\n5. \"blog\": 博客素材\n6. \"summary\": 长期总结素材\n7. \"random\": 稀奇古怪想法\n8. \"normal\": 普通记录（只记录，不涉及上述分类）\n\n输出 JSON 格式要求：\n{\n  \"type\": \"idea | task | reminder | learning | blog | summary | random | normal\",\n  \"topic\": \"提取的主题标签（如 'AI提示词', '博客想法'），如果是普通记录可为空\",\n  \"taskTime\": \"如果 type 是 task，提取用户意图的时间（如 'tomorrow', 'next_week', 'after_3_days'），如果没有明确则为空\",\n  \"reminderTime\": \"如果 type 是 reminder，提取出 ISO 格式的时间字符串。推算规则：1) 严格根据提供的『当前时间及星期』进行相对时间推算（注意：中文语境下，如果今天是周日，『下周』通常指明天周一开始的那一周，因此『下周六』为加6天，请务必准确推算）。2) 如果用户只给出了天数却没有指定具体时间点，不要询问用户，请一律默认设置为那一天的 09:00:00。仅在完全无法推测日期时，才设置 needsClarification 为 true。\",\n  \"needsClarification\": boolean,\n  \"reply\": \"给用户的简短反馈语，例如：'已记录，明早会提醒你：整理提示词模板库'\"\n}\n\n当前时间：${CURRENT_TIME}\n";
 async function Ra(e, t, n, r = "gpt-3.5-turbo") {
 	let i = new K({
 		apiKey: t,
 		baseURL: n || void 0
-	}), a = (/* @__PURE__ */ new Date()).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }), o = La.replace("${CURRENT_TIME}", a);
+	}), a = /* @__PURE__ */ new Date(), o = `${a.getFullYear()}-${String(a.getMonth() + 1).padStart(2, "0")}-${String(a.getDate()).padStart(2, "0")} ${String(a.getHours()).padStart(2, "0")}:${String(a.getMinutes()).padStart(2, "0")}:${String(a.getSeconds()).padStart(2, "0")} (${[
+		"周日",
+		"周一",
+		"周二",
+		"周三",
+		"周四",
+		"周五",
+		"周六"
+	][a.getDay()]})`, s = La.replace("${CURRENT_TIME}", o);
 	try {
 		let t = (await i.chat.completions.create({
 			model: r,
 			messages: [{
 				role: "system",
-				content: o
+				content: s
 			}, {
 				role: "user",
 				content: e
@@ -5719,8 +5727,20 @@ i.whenReady().then(() => {
 		let r = to.getAll(), i = r.findIndex((e) => e.id === t);
 		if (i !== -1) {
 			if (n === "done") r[i].status = "completed";
-			else if (n === "later") r[i].status = "delayed", r[i].remindAt = new Date(Date.now() + 1800 * 1e3).toISOString();
-			else if (n === "tomorrow") {
+			else if (n === "later") {
+				r[i].status = "delayed", r[i].remindAt = new Date(Date.now() + 1800 * 1e3).toISOString();
+				let e = Q.getAll();
+				e.push({
+					id: Date.now().toString(),
+					text: `稍后提醒：${r[i].originalText}`,
+					timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+					status: "analyzed",
+					aiResult: {
+						type: "reminder",
+						reply: "已推迟，将在 30 分钟后再次提醒。"
+					}
+				}), Q.setAll(e);
+			} else if (n === "tomorrow") {
 				r[i].status = "delayed";
 				let e = /* @__PURE__ */ new Date();
 				e.setDate(e.getDate() + 1), r[i].remindAt = e.toISOString();

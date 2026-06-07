@@ -447,6 +447,18 @@ app.whenReady().then(() => {
       } else if (action === 'later') {
         reminders[taskIndex].status = 'delayed';
         reminders[taskIndex].remindAt = new Date(Date.now() + 30 * 60 * 1000).toISOString(); // 30 minutes later
+        
+        // Record this action in the timeline
+        const entries = entriesStore.getAll();
+        entries.push({
+          id: Date.now().toString(),
+          text: `稍后提醒：${reminders[taskIndex].originalText}`,
+          timestamp: new Date().toISOString(),
+          status: 'analyzed',
+          aiResult: { type: 'reminder', reply: '已推迟，将在 30 分钟后再次提醒。' }
+        });
+        entriesStore.setAll(entries);
+
       } else if (action === 'tomorrow') {
         reminders[taskIndex].status = 'delayed';
         const tomorrow = new Date();

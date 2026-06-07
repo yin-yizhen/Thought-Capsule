@@ -19,7 +19,7 @@ const SYSTEM_PROMPT = `
   "type": "idea | task | reminder | learning | blog | summary | random | normal",
   "topic": "提取的主题标签（如 'AI提示词', '博客想法'），如果是普通记录可为空",
   "taskTime": "如果 type 是 task，提取用户意图的时间（如 'tomorrow', 'next_week', 'after_3_days'），如果没有明确则为空",
-  "reminderTime": "如果 type 是 reminder，提取出 ISO 格式的时间字符串（请根据当前时间推算）。如果时间不明确，请置为空，并设置 needsClarification 为 true",
+  "reminderTime": "如果 type 是 reminder，提取出 ISO 格式的时间字符串。推算规则：1) 严格根据提供的『当前时间及星期』进行相对时间推算（注意：中文语境下，如果今天是周日，『下周』通常指明天周一开始的那一周，因此『下周六』为加6天，请务必准确推算）。2) 如果用户只给出了天数却没有指定具体时间点，不要询问用户，请一律默认设置为那一天的 09:00:00。仅在完全无法推测日期时，才设置 needsClarification 为 true。",
   "needsClarification": boolean,
   "reply": "给用户的简短反馈语，例如：'已记录，明早会提醒你：整理提示词模板库'"
 }
@@ -33,8 +33,10 @@ export async function analyzeIntent(text: string, apiKey: string, baseURL?: stri
     baseURL: baseURL || undefined,
   });
 
-  const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-  const prompt = SYSTEM_PROMPT.replace('\${CURRENT_TIME}', now);
+  const d = new Date();
+  const weekdayNames = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  const now = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')} (${weekdayNames[d.getDay()]})`;
+  const prompt = SYSTEM_PROMPT.replace('${CURRENT_TIME}', now);
 
   try {
     const response = await openai.chat.completions.create({
