@@ -340,6 +340,7 @@ export default function Reminder() {
                </>
             )}
           </>
+        )}
         {/* === Mode: Weekly === */}
         {mode === 'weekly' && weeklyData && (
           <>
