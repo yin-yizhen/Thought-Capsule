@@ -20,7 +20,8 @@ export default function Settings() {
     weeklyReview: {
       enabled: true,
       time: '22:30'
-    }
+    },
+    sendKey: 'Shift+Enter' // default
   });
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -121,6 +122,21 @@ export default function Settings() {
               >
                 <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${config.autoStart ? 'translate-x-6' : 'translate-x-1'}`} />
               </button>
+            </div>
+
+            <div className="flex items-center justify-between pt-5 border-t border-stone-100">
+              <div>
+                <label className="block text-sm font-medium text-stone-700">发送快捷键</label>
+                <p className="text-[13px] text-stone-400 mt-0.5">选择你习惯的发送方式</p>
+              </div>
+              <select
+                value={config.sendKey || 'Shift+Enter'}
+                onChange={e => setConfig({...config, sendKey: e.target.value})}
+                className="px-4 py-2 bg-stone-50 border border-stone-200 rounded-xl focus:ring-1 focus:ring-stone-900 focus:border-stone-900 outline-none text-[14px] text-stone-700"
+              >
+                <option value="Enter">Enter 发送，Shift+Enter 换行</option>
+                <option value="Shift+Enter">Shift+Enter 发送，Enter 换行</option>
+              </select>
             </div>
 
             <div className="flex items-center justify-between pt-5 border-t border-stone-100">
@@ -242,6 +258,31 @@ export default function Settings() {
                 onChange={e => setConfig({...config, eveningTime: e.target.value})}
                 className="w-full px-4 py-3 border border-stone-200 rounded-2xl focus:ring-1 focus:ring-stone-900 focus:border-stone-900 outline-none transition-all text-[15px] bg-stone-50/50 focus:bg-white cursor-pointer"
               />
+            </div>
+
+            <div className="pt-5 border-t border-stone-100 flex flex-col gap-4">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-stone-700">启用每周复盘 (周日晚)</label>
+                <button
+                  type="button"
+                  onClick={() => setConfig({...config, weeklyReview: { ...config.weeklyReview, enabled: !config.weeklyReview?.enabled }})}
+                  className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${config.weeklyReview?.enabled !== false ? 'bg-stone-900' : 'bg-stone-200'}`}
+                >
+                  <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${config.weeklyReview?.enabled !== false ? 'translate-x-5' : 'translate-x-0'}`} />
+                </button>
+              </div>
+
+              {config.weeklyReview?.enabled !== false && (
+                <div>
+                  <label className="block text-sm font-medium text-stone-700 mb-1.5">每周复盘提醒时间</label>
+                  <input 
+                    type="time"
+                    value={config.weeklyReview?.time || '22:30'}
+                    onChange={e => setConfig({...config, weeklyReview: { ...config.weeklyReview, time: e.target.value }})}
+                    className="w-full px-4 py-3 border border-stone-200 rounded-2xl focus:ring-1 focus:ring-stone-900 focus:border-stone-900 outline-none transition-all text-[15px] bg-stone-50/50 focus:bg-white cursor-pointer"
+                  />
+                </div>
+              )}
             </div>
 
             <p className="text-[13px] text-stone-400 mt-2">

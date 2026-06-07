@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, screen, Tray, Menu, globalShortcut, shell, nativeImage } from 'electron';
+import { app, BrowserWindow, ipcMain, screen, Tray, Menu, globalShortcut, shell, nativeImage, dialog } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -28,9 +28,11 @@ let tray: Tray | null = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
+    title: '思维胶囊',
     width: 600,
     height: 220,
     show: false,
+    icon: path.join(process.env.VITE_PUBLIC || '', 'icon.png'),
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
@@ -75,6 +77,7 @@ function showSettingsWindow() {
     minHeight: 650,
     show: false,
     title: '系统设置',
+    icon: path.join(process.env.VITE_PUBLIC || '', 'icon.png'),
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
@@ -114,6 +117,7 @@ function showTodayWindow() {
     minHeight: 600,
     show: false,
     title: '今日记录',
+    icon: path.join(process.env.VITE_PUBLIC || '', 'icon.png'),
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.mjs'),
@@ -138,7 +142,7 @@ function showTodayWindow() {
 }
 
 function createTray() {
-  const iconPath = path.join(process.env.VITE_PUBLIC || '', 'vite.svg');
+  const iconPath = path.join(process.env.VITE_PUBLIC || '', 'icon.png');
   let icon: Electron.NativeImage;
   
   if (fs.existsSync(iconPath)) {
@@ -184,7 +188,7 @@ function createTray() {
     { label: '退出', click: () => app.quit() }
   ]);
   tray = new Tray(icon);
-  tray.setToolTip('思维记录');
+  tray.setToolTip('思维胶囊');
   tray.setContextMenu(contextMenu);
 }
 
@@ -236,6 +240,7 @@ const configStore = new Store<AppConfig>('config.json', {
 const entriesStore = new Store<any[]>('entries.json', []);
 const tasksStore = new Store<any[]>('tasks.json', []);
 const remindersStore = new Store<any[]>('reminders.json', []);
+const reviewStore = new Store<any>('review_state.json', { lastReviewDate: '', lastMorningDate: '' });
 
 app.whenReady().then(() => {
   createWindow();
@@ -523,11 +528,7 @@ app.whenReady().then(() => {
     reminderWindow?.hide();
   });
 
-  ipcMain.handle('get-today-entry-count', async () => {
-    const entries = entriesStore.getAll();
-    const todayStr = new Date().toISOString().split('T')[0];
-    return entries.filter(e => e.timestamp.startsWith(todayStr)).length;
-  });
+
 
   // Set Auto-launch
   app.setLoginItemSettings({
@@ -540,8 +541,6 @@ app.whenReady().then(() => {
       createWindow();
     }
   });
-
-const reviewStore = new Store<any>('review_state.json', { lastReviewDate: '', lastMorningDate: '' });
 
   // Intelligent Cron (check every minute)
   setInterval(() => {
@@ -579,6 +578,7 @@ const reviewStore = new Store<any>('review_state.json', { lastReviewDate: '', la
 
     // 2. Exact Reminders Check
     const dueReminders = reminders.filter(r => r.status === 'pending' && new Date(r.remindAt) <= now);
+    require('node:fs').appendFileSync('d:/codex-study/quick-note/debug.log', 'now: ' + now.toISOString() + ', dueReminders: ' + dueReminders.length + ', windowVisible: ' + (reminderWindow ? reminderWindow.isVisible() : 'null') + '\n');
     if (dueReminders.length > 0 && (!reminderWindow || !reminderWindow.isVisible())) {
       showReminderWindow(dueReminders[0]);
       dueReminders[0].status = 'shown'; // Prevent loop
@@ -849,15 +849,28 @@ function showReminderWindow(task: any) {
 }
 
 function createReminderWindowInternal() {
-    const primaryDisplay = screen.getPrimaryDisplay();
-    const { width, height } = primaryDisplay.workAreaSize;
+    const config = configStore.getAll() as any;
+    const cursorPoint = screen.getCursorScreenPoint();
+    const display = screen.getDisplayNearestPoint(cursorPoint);
+    const { width, height } = display.workAreaSize;
+    const { x: displayX, y: displayY } = display.bounds;
+
+    let targetX = displayX + width - 430;
+    let targetY = displayY + height - 690;
+
+    if (config.reminderWindowPos && typeof config.reminderWindowPos.x === 'number' && typeof config.reminderWindowPos.y === 'number') {
+      targetX = config.reminderWindowPos.x;
+      targetY = config.reminderWindowPos.y;
+    }
 
     reminderWindow = new BrowserWindow({
+      title: '思维胶囊',
       width: 400,
       height: 650,
-      x: 30,
-      y: height - 690,
+      x: targetX,
+      y: targetY,
       show: false,
+      icon: path.join(process.env.VITE_PUBLIC || '', 'icon.png'),
       frame: false,
       transparent: true,
       backgroundColor: '#00000000',
@@ -870,6 +883,15 @@ function createReminderWindowInternal() {
         contextIsolation: true,
         nodeIntegration: false,
       },
+    });
+
+    reminderWindow.on('moved', () => {
+      if (reminderWindow) {
+        const bounds = reminderWindow.getBounds();
+        const currentConfig = configStore.getAll() as any;
+        currentConfig.reminderWindowPos = { x: bounds.x, y: bounds.y };
+        configStore.setAll(currentConfig);
+      }
     });
 
     if (VITE_DEV_SERVER_URL) {

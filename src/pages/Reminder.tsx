@@ -82,9 +82,9 @@ export default function Reminder() {
   if (mode === 'none') return null;
 
   return (
-    <div className="w-full h-full flex flex-col justify-end p-4 bg-transparent font-sans">
+    <div className="w-full h-full flex flex-col justify-end p-10 bg-transparent font-sans">
       <div 
-        className={`w-full bg-[#fcfcfc] shadow-[0_0_40px_rgba(0,0,0,0.06)] rounded-[32px] p-6 flex flex-col gap-5 overflow-y-auto ${mode === 'morning' || draft ? 'max-h-[600px]' : 'max-h-[400px]'}`}
+        className={`w-full bg-[#fcfcfc] shadow-2xl border border-stone-100/50 rounded-[32px] p-6 flex flex-col gap-5 overflow-y-auto ${mode === 'morning' || draft ? 'max-h-[600px]' : 'max-h-[400px]'}`}
         style={{ WebkitAppRegion: 'drag' } as any}
       >
         
@@ -103,7 +103,7 @@ export default function Reminder() {
             <div className="flex flex-col gap-2 mt-2" style={{ WebkitAppRegion: 'no-drag' } as any}>
               <button
                 onClick={() => handleReminderAction('done')}
-                className="w-full py-3 rounded-full bg-stone-900 text-white font-medium hover:bg-stone-800 transition-colors shadow-sm flex items-center justify-center gap-2 text-[15px]"
+                className="w-full py-3 rounded-full bg-stone-900 text-white font-medium hover:bg-stone-800 transition-colors shadow-sm flex items-center justify-center gap-2 text-[15px] outline-none focus:outline-none"
               >
                 <CheckCircle className="w-4 h-4" /> 完成
               </button>
@@ -111,21 +111,21 @@ export default function Reminder() {
                 {currentTask.type === 'TASK' ? (
                   <button
                     onClick={() => handleReminderAction('cancel')}
-                    className="flex-1 py-2.5 rounded-full bg-stone-100 text-stone-600 font-medium hover:bg-stone-200 transition-colors text-sm"
+                    className="flex-1 py-2.5 rounded-full bg-stone-100 text-stone-600 font-medium hover:bg-stone-200 transition-colors text-sm outline-none focus:outline-none"
                   >
                     不做了
                   </button>
                 ) : (
                   <button
                     onClick={() => handleReminderAction('later')}
-                    className="flex-1 py-2.5 rounded-full bg-stone-100 text-stone-600 font-medium hover:bg-stone-200 transition-colors text-sm"
+                    className="flex-1 py-2.5 rounded-full bg-stone-100 text-stone-600 font-medium hover:bg-stone-200 transition-colors text-sm outline-none focus:outline-none"
                   >
                     稍后提醒
                   </button>
                 )}
                 <button
                   onClick={() => handleReminderAction('tomorrow')}
-                  className="flex-1 py-2.5 rounded-full bg-stone-100 text-stone-600 font-medium hover:bg-stone-200 transition-colors text-sm"
+                  className="flex-1 py-2.5 rounded-full bg-stone-100 text-stone-600 font-medium hover:bg-stone-200 transition-colors text-sm outline-none focus:outline-none"
                 >
                   明天再说
                 </button>

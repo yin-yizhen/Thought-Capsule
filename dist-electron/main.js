@@ -1,184 +1,271 @@
-import { createRequire as e } from "node:module";
-import { BrowserWindow as t, Menu as n, Tray as r, app as i, globalShortcut as a, ipcMain as o, nativeImage as s, screen as c, shell as l } from "electron";
-import u from "node:path";
-import d from "node:fs";
-import { fileURLToPath as f } from "node:url";
-import p from "fs";
-import m from "path";
+import { createRequire } from "node:module";
+import { BrowserWindow, Menu, Tray, app, dialog, globalShortcut, ipcMain, nativeImage, screen, shell } from "electron";
+import path from "node:path";
+import fs from "node:fs";
+import { fileURLToPath } from "node:url";
+import fs$1 from "fs";
+import path$1 from "path";
 //#region \0rolldown/runtime.js
-var h = /* @__PURE__ */ e(import.meta.url);
+var __require = /* @__PURE__ */ createRequire(import.meta.url);
 //#endregion
 //#region node_modules/openai/internal/tslib.mjs
-function g(e, t, n, r, i) {
-	if (r === "m") throw TypeError("Private method is not writable");
-	if (r === "a" && !i) throw TypeError("Private accessor was defined without a setter");
-	if (typeof t == "function" ? e !== t || !i : !t.has(e)) throw TypeError("Cannot write private member to an object whose class did not declare it");
-	return r === "a" ? i.call(e, n) : i ? i.value = n : t.set(e, n), n;
+function __classPrivateFieldSet(receiver, state, value, kind, f) {
+	if (kind === "m") throw new TypeError("Private method is not writable");
+	if (kind === "a" && !f) throw new TypeError("Private accessor was defined without a setter");
+	if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot write private member to an object whose class did not declare it");
+	return kind === "a" ? f.call(receiver, value) : f ? f.value = value : state.set(receiver, value), value;
 }
-function _(e, t, n, r) {
-	if (n === "a" && !r) throw TypeError("Private accessor was defined without a getter");
-	if (typeof t == "function" ? e !== t || !r : !t.has(e)) throw TypeError("Cannot read private member from an object whose class did not declare it");
-	return n === "m" ? r : n === "a" ? r.call(e) : r ? r.value : t.get(e);
+function __classPrivateFieldGet(receiver, state, kind, f) {
+	if (kind === "a" && !f) throw new TypeError("Private accessor was defined without a getter");
+	if (typeof state === "function" ? receiver !== state || !f : !state.has(receiver)) throw new TypeError("Cannot read private member from an object whose class did not declare it");
+	return kind === "m" ? f : kind === "a" ? f.call(receiver) : f ? f.value : state.get(receiver);
 }
 //#endregion
 //#region node_modules/openai/internal/utils/uuid.mjs
-var v = function() {
-	let { crypto: e } = globalThis;
-	if (e?.randomUUID) return v = e.randomUUID.bind(e), e.randomUUID();
-	let t = new Uint8Array(1), n = e ? () => e.getRandomValues(t)[0] : () => Math.random() * 255 & 255;
-	return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (e) => (e ^ n() & 15 >> e / 4).toString(16));
+/**
+* https://stackoverflow.com/a/2117523
+*/
+var uuid4 = function() {
+	const { crypto } = globalThis;
+	if (crypto?.randomUUID) {
+		uuid4 = crypto.randomUUID.bind(crypto);
+		return crypto.randomUUID();
+	}
+	const u8 = new Uint8Array(1);
+	const randomByte = crypto ? () => crypto.getRandomValues(u8)[0] : () => Math.random() * 255 & 255;
+	return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) => (+c ^ randomByte() & 15 >> +c / 4).toString(16));
 };
 //#endregion
 //#region node_modules/openai/internal/errors.mjs
-function y(e) {
-	return typeof e == "object" && !!e && ("name" in e && e.name === "AbortError" || "message" in e && String(e.message).includes("FetchRequestCanceledException"));
+function isAbortError(err) {
+	return typeof err === "object" && err !== null && ("name" in err && err.name === "AbortError" || "message" in err && String(err.message).includes("FetchRequestCanceledException"));
 }
-var ee = (e) => {
-	if (e instanceof Error) return e;
-	if (typeof e == "object" && e) {
+var castToError = (err) => {
+	if (err instanceof Error) return err;
+	if (typeof err === "object" && err !== null) {
 		try {
-			if (Object.prototype.toString.call(e) === "[object Error]") {
-				let t = Error(e.message, e.cause ? { cause: e.cause } : {});
-				return e.stack && (t.stack = e.stack), e.cause && !t.cause && (t.cause = e.cause), e.name && (t.name = e.name), t;
+			if (Object.prototype.toString.call(err) === "[object Error]") {
+				const error = new Error(err.message, err.cause ? { cause: err.cause } : {});
+				if (err.stack) error.stack = err.stack;
+				if (err.cause && !error.cause) error.cause = err.cause;
+				if (err.name) error.name = err.name;
+				return error;
 			}
 		} catch {}
 		try {
-			return Error(JSON.stringify(e));
+			return new Error(JSON.stringify(err));
 		} catch {}
 	}
-	return Error(e);
-}, b = class extends Error {}, x = class e extends b {
-	constructor(t, n, r, i) {
-		super(`${e.makeMessage(t, n, r)}`), this.status = t, this.headers = i, this.requestID = i?.get("x-request-id"), this.error = n;
-		let a = n;
-		this.code = a?.code, this.param = a?.param, this.type = a?.type;
+	return new Error(err);
+};
+//#endregion
+//#region node_modules/openai/core/error.mjs
+var OpenAIError = class extends Error {};
+var APIError = class APIError extends OpenAIError {
+	constructor(status, error, message, headers) {
+		super(`${APIError.makeMessage(status, error, message)}`);
+		this.status = status;
+		this.headers = headers;
+		this.requestID = headers?.get("x-request-id");
+		this.error = error;
+		const data = error;
+		this.code = data?.["code"];
+		this.param = data?.["param"];
+		this.type = data?.["type"];
 	}
-	static makeMessage(e, t, n) {
-		let r = t?.message ? typeof t.message == "string" ? t.message : JSON.stringify(t.message) : t ? JSON.stringify(t) : n;
-		return e && r ? `${e} ${r}` : e ? `${e} status code (no body)` : r || "(no status code or body)";
+	static makeMessage(status, error, message) {
+		const msg = error?.message ? typeof error.message === "string" ? error.message : JSON.stringify(error.message) : error ? JSON.stringify(error) : message;
+		if (status && msg) return `${status} ${msg}`;
+		if (status) return `${status} status code (no body)`;
+		if (msg) return msg;
+		return "(no status code or body)";
 	}
-	static generate(t, n, r, i) {
-		if (!t || !i) return new C({
-			message: r,
-			cause: ee(n)
+	static generate(status, errorResponse, message, headers) {
+		if (!status || !headers) return new APIConnectionError({
+			message,
+			cause: castToError(errorResponse)
 		});
-		let a = n?.error;
-		return t === 400 ? new ne(t, a, r, i) : t === 401 ? new re(t, a, r, i) : t === 403 ? new ie(t, a, r, i) : t === 404 ? new ae(t, a, r, i) : t === 409 ? new oe(t, a, r, i) : t === 422 ? new se(t, a, r, i) : t === 429 ? new ce(t, a, r, i) : t >= 500 ? new le(t, a, r, i) : new e(t, a, r, i);
+		const error = errorResponse?.["error"];
+		if (status === 400) return new BadRequestError(status, error, message, headers);
+		if (status === 401) return new AuthenticationError(status, error, message, headers);
+		if (status === 403) return new PermissionDeniedError(status, error, message, headers);
+		if (status === 404) return new NotFoundError(status, error, message, headers);
+		if (status === 409) return new ConflictError(status, error, message, headers);
+		if (status === 422) return new UnprocessableEntityError(status, error, message, headers);
+		if (status === 429) return new RateLimitError(status, error, message, headers);
+		if (status >= 500) return new InternalServerError(status, error, message, headers);
+		return new APIError(status, error, message, headers);
 	}
-}, S = class extends x {
-	constructor({ message: e } = {}) {
-		super(void 0, void 0, e || "Request was aborted.", void 0);
+};
+var APIUserAbortError = class extends APIError {
+	constructor({ message } = {}) {
+		super(void 0, void 0, message || "Request was aborted.", void 0);
 	}
-}, C = class extends x {
-	constructor({ message: e, cause: t }) {
-		super(void 0, void 0, e || "Connection error.", void 0), t && (this.cause = t);
+};
+var APIConnectionError = class extends APIError {
+	constructor({ message, cause }) {
+		super(void 0, void 0, message || "Connection error.", void 0);
+		if (cause) this.cause = cause;
 	}
-}, te = class extends C {
-	constructor({ message: e } = {}) {
-		super({ message: e ?? "Request timed out." });
+};
+var APIConnectionTimeoutError = class extends APIConnectionError {
+	constructor({ message } = {}) {
+		super({ message: message ?? "Request timed out." });
 	}
-}, ne = class extends x {}, re = class extends x {}, ie = class extends x {}, ae = class extends x {}, oe = class extends x {}, se = class extends x {}, ce = class extends x {}, le = class extends x {}, ue = class extends b {
+};
+var BadRequestError = class extends APIError {};
+var AuthenticationError = class extends APIError {};
+var PermissionDeniedError = class extends APIError {};
+var NotFoundError = class extends APIError {};
+var ConflictError = class extends APIError {};
+var UnprocessableEntityError = class extends APIError {};
+var RateLimitError = class extends APIError {};
+var InternalServerError = class extends APIError {};
+var LengthFinishReasonError = class extends OpenAIError {
 	constructor() {
-		super("Could not parse response content as the length limit was reached");
+		super(`Could not parse response content as the length limit was reached`);
 	}
-}, de = class extends b {
+};
+var ContentFilterFinishReasonError = class extends OpenAIError {
 	constructor() {
-		super("Could not parse response content as the request was rejected by the content filter");
+		super(`Could not parse response content as the request was rejected by the content filter`);
 	}
-}, fe = class extends Error {
-	constructor(e) {
-		super(e);
+};
+var InvalidWebhookSignatureError = class extends Error {
+	constructor(message) {
+		super(message);
 	}
-}, pe = class extends x {
-	constructor(e, t, n) {
-		let r = "OAuth2 authentication error", i;
-		if (t && typeof t == "object") {
-			let e = t;
-			i = e.error;
-			let n = e.error_description;
-			n && typeof n == "string" ? r = n : i && (r = i);
+};
+/**
+* Error thrown by the API server during OAuth token exchange.
+* Can have status codes 400, 401, or 403.
+* Other status codes from OAuth endpoints are raised as normal APIError types.
+*/
+var OAuthError = class extends APIError {
+	constructor(status, error, headers) {
+		let finalMessage = "OAuth2 authentication error";
+		let error_code = void 0;
+		if (error && typeof error === "object") {
+			const errorData = error;
+			error_code = errorData["error"];
+			const description = errorData["error_description"];
+			if (description && typeof description === "string") finalMessage = description;
+			else if (error_code) finalMessage = error_code;
 		}
-		super(e, t, r, n), this.error_code = i;
+		super(status, error, finalMessage, headers);
+		this.error_code = error_code;
 	}
-}, me = class extends b {
-	constructor(e, t, n) {
-		super(e), this.provider = t, this.cause = n;
+};
+var SubjectTokenProviderError = class extends OpenAIError {
+	constructor(message, provider, cause) {
+		super(message);
+		this.provider = provider;
+		this.cause = cause;
 	}
-}, he = /^[a-z][a-z0-9+.-]*:/i, ge = (e) => he.test(e), w = (e) => (w = Array.isArray, w(e)), _e = w;
-function ve(e) {
-	return typeof e == "object" ? e ?? {} : {};
+};
+//#endregion
+//#region node_modules/openai/internal/utils/values.mjs
+var startsWithSchemeRegexp = /^[a-z][a-z0-9+.-]*:/i;
+var isAbsoluteURL = (url) => {
+	return startsWithSchemeRegexp.test(url);
+};
+var isArray = (val) => (isArray = Array.isArray, isArray(val));
+var isReadonlyArray = isArray;
+/** Returns an object if the given value isn't an object, otherwise returns as-is */
+function maybeObj(x) {
+	if (typeof x !== "object") return {};
+	return x ?? {};
 }
-function ye(e) {
-	if (!e) return !0;
-	for (let t in e) return !1;
-	return !0;
+function isEmptyObj(obj) {
+	if (!obj) return true;
+	for (const _k in obj) return false;
+	return true;
 }
-function be(e, t) {
-	return Object.prototype.hasOwnProperty.call(e, t);
+function hasOwn(obj, key) {
+	return Object.prototype.hasOwnProperty.call(obj, key);
 }
-function xe(e) {
-	return typeof e == "object" && !!e && !Array.isArray(e);
+function isObj(obj) {
+	return obj != null && typeof obj === "object" && !Array.isArray(obj);
 }
-var Se = (e, t) => {
-	if (typeof t != "number" || !Number.isInteger(t)) throw new b(`${e} must be an integer`);
-	if (t < 0) throw new b(`${e} must be a positive integer`);
-	return t;
-}, Ce = (e) => {
+var validatePositiveInteger = (name, n) => {
+	if (typeof n !== "number" || !Number.isInteger(n)) throw new OpenAIError(`${name} must be an integer`);
+	if (n < 0) throw new OpenAIError(`${name} must be a positive integer`);
+	return n;
+};
+var safeJSON = (text) => {
 	try {
-		return JSON.parse(e);
-	} catch {
+		return JSON.parse(text);
+	} catch (err) {
 		return;
 	}
-}, we = (e) => new Promise((t) => setTimeout(t, e)), Te = "6.42.0", Ee = () => typeof window < "u" && window.document !== void 0 && typeof navigator < "u";
-function De() {
-	return typeof Deno < "u" && Deno.build != null ? "deno" : typeof EdgeRuntime < "u" ? "edge" : Object.prototype.toString.call(globalThis.process === void 0 ? 0 : globalThis.process) === "[object process]" ? "node" : "unknown";
+};
+//#endregion
+//#region node_modules/openai/internal/utils/sleep.mjs
+var sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+//#endregion
+//#region node_modules/openai/version.mjs
+var VERSION = "6.42.0";
+//#endregion
+//#region node_modules/openai/internal/detect-platform.mjs
+var isRunningInBrowser = () => {
+	return typeof window !== "undefined" && typeof window.document !== "undefined" && typeof navigator !== "undefined";
+};
+/**
+* Note this does not detect 'browser'; for that, use getBrowserInfo().
+*/
+function getDetectedPlatform() {
+	if (typeof Deno !== "undefined" && Deno.build != null) return "deno";
+	if (typeof EdgeRuntime !== "undefined") return "edge";
+	if (Object.prototype.toString.call(typeof globalThis.process !== "undefined" ? globalThis.process : 0) === "[object process]") return "node";
+	return "unknown";
 }
-var Oe = () => {
-	let e = De();
-	if (e === "deno") return {
+var getPlatformProperties = () => {
+	const detectedPlatform = getDetectedPlatform();
+	if (detectedPlatform === "deno") return {
 		"X-Stainless-Lang": "js",
-		"X-Stainless-Package-Version": Te,
-		"X-Stainless-OS": je(Deno.build.os),
-		"X-Stainless-Arch": Ae(Deno.build.arch),
+		"X-Stainless-Package-Version": VERSION,
+		"X-Stainless-OS": normalizePlatform(Deno.build.os),
+		"X-Stainless-Arch": normalizeArch(Deno.build.arch),
 		"X-Stainless-Runtime": "deno",
-		"X-Stainless-Runtime-Version": typeof Deno.version == "string" ? Deno.version : Deno.version?.deno ?? "unknown"
+		"X-Stainless-Runtime-Version": typeof Deno.version === "string" ? Deno.version : Deno.version?.deno ?? "unknown"
 	};
-	if (typeof EdgeRuntime < "u") return {
+	if (typeof EdgeRuntime !== "undefined") return {
 		"X-Stainless-Lang": "js",
-		"X-Stainless-Package-Version": Te,
+		"X-Stainless-Package-Version": VERSION,
 		"X-Stainless-OS": "Unknown",
 		"X-Stainless-Arch": `other:${EdgeRuntime}`,
 		"X-Stainless-Runtime": "edge",
 		"X-Stainless-Runtime-Version": globalThis.process.version
 	};
-	if (e === "node") return {
+	if (detectedPlatform === "node") return {
 		"X-Stainless-Lang": "js",
-		"X-Stainless-Package-Version": Te,
-		"X-Stainless-OS": je(globalThis.process.platform ?? "unknown"),
-		"X-Stainless-Arch": Ae(globalThis.process.arch ?? "unknown"),
+		"X-Stainless-Package-Version": VERSION,
+		"X-Stainless-OS": normalizePlatform(globalThis.process.platform ?? "unknown"),
+		"X-Stainless-Arch": normalizeArch(globalThis.process.arch ?? "unknown"),
 		"X-Stainless-Runtime": "node",
 		"X-Stainless-Runtime-Version": globalThis.process.version ?? "unknown"
 	};
-	let t = ke();
-	return t ? {
+	const browserInfo = getBrowserInfo();
+	if (browserInfo) return {
 		"X-Stainless-Lang": "js",
-		"X-Stainless-Package-Version": Te,
+		"X-Stainless-Package-Version": VERSION,
 		"X-Stainless-OS": "Unknown",
 		"X-Stainless-Arch": "unknown",
-		"X-Stainless-Runtime": `browser:${t.browser}`,
-		"X-Stainless-Runtime-Version": t.version
-	} : {
+		"X-Stainless-Runtime": `browser:${browserInfo.browser}`,
+		"X-Stainless-Runtime-Version": browserInfo.version
+	};
+	return {
 		"X-Stainless-Lang": "js",
-		"X-Stainless-Package-Version": Te,
+		"X-Stainless-Package-Version": VERSION,
 		"X-Stainless-OS": "Unknown",
 		"X-Stainless-Arch": "unknown",
 		"X-Stainless-Runtime": "unknown",
 		"X-Stainless-Runtime-Version": "unknown"
 	};
 };
-function ke() {
-	if (typeof navigator > "u" || !navigator) return null;
-	for (let { key: e, pattern: t } of [
+function getBrowserInfo() {
+	if (typeof navigator === "undefined" || !navigator) return null;
+	for (const { key, pattern } of [
 		{
 			key: "edge",
 			pattern: /Edge(?:\W+(\d+)\.(\d+)(?:\.(\d+))?)?/
@@ -204,55 +291,89 @@ function ke() {
 			pattern: /(?:Version\W+(\d+)\.(\d+)(?:\.(\d+))?)?(?:\W+Mobile\S*)?\W+Safari/
 		}
 	]) {
-		let n = t.exec(navigator.userAgent);
-		if (n) return {
-			browser: e,
-			version: `${n[1] || 0}.${n[2] || 0}.${n[3] || 0}`
+		const match = pattern.exec(navigator.userAgent);
+		if (match) return {
+			browser: key,
+			version: `${match[1] || 0}.${match[2] || 0}.${match[3] || 0}`
 		};
 	}
 	return null;
 }
-var Ae = (e) => e === "x32" ? "x32" : e === "x86_64" || e === "x64" ? "x64" : e === "arm" ? "arm" : e === "aarch64" || e === "arm64" ? "arm64" : e ? `other:${e}` : "unknown", je = (e) => (e = e.toLowerCase(), e.includes("ios") ? "iOS" : e === "android" ? "Android" : e === "darwin" ? "MacOS" : e === "win32" ? "Windows" : e === "freebsd" ? "FreeBSD" : e === "openbsd" ? "OpenBSD" : e === "linux" ? "Linux" : e ? `Other:${e}` : "Unknown"), Me, Ne = () => Me ??= Oe();
+var normalizeArch = (arch) => {
+	if (arch === "x32") return "x32";
+	if (arch === "x86_64" || arch === "x64") return "x64";
+	if (arch === "arm") return "arm";
+	if (arch === "aarch64" || arch === "arm64") return "arm64";
+	if (arch) return `other:${arch}`;
+	return "unknown";
+};
+var normalizePlatform = (platform) => {
+	platform = platform.toLowerCase();
+	if (platform.includes("ios")) return "iOS";
+	if (platform === "android") return "Android";
+	if (platform === "darwin") return "MacOS";
+	if (platform === "win32") return "Windows";
+	if (platform === "freebsd") return "FreeBSD";
+	if (platform === "openbsd") return "OpenBSD";
+	if (platform === "linux") return "Linux";
+	if (platform) return `Other:${platform}`;
+	return "Unknown";
+};
+var _platformHeaders;
+var getPlatformHeaders = () => {
+	return _platformHeaders ?? (_platformHeaders = getPlatformProperties());
+};
 //#endregion
 //#region node_modules/openai/internal/shims.mjs
-function Pe() {
-	if (typeof fetch < "u") return fetch;
-	throw Error("`fetch` is not defined as a global; Either pass `fetch` to the client, `new OpenAI({ fetch })` or polyfill the global, `globalThis.fetch = fetch`");
+function getDefaultFetch() {
+	if (typeof fetch !== "undefined") return fetch;
+	throw new Error("`fetch` is not defined as a global; Either pass `fetch` to the client, `new OpenAI({ fetch })` or polyfill the global, `globalThis.fetch = fetch`");
 }
-function Fe(...e) {
-	let t = globalThis.ReadableStream;
-	if (t === void 0) throw Error("`ReadableStream` is not defined as a global; You will need to polyfill it, `globalThis.ReadableStream = ReadableStream`");
-	return new t(...e);
+function makeReadableStream(...args) {
+	const ReadableStream = globalThis.ReadableStream;
+	if (typeof ReadableStream === "undefined") throw new Error("`ReadableStream` is not defined as a global; You will need to polyfill it, `globalThis.ReadableStream = ReadableStream`");
+	return new ReadableStream(...args);
 }
-function Ie(e) {
-	let t = Symbol.asyncIterator in e ? e[Symbol.asyncIterator]() : e[Symbol.iterator]();
-	return Fe({
+function ReadableStreamFrom(iterable) {
+	let iter = Symbol.asyncIterator in iterable ? iterable[Symbol.asyncIterator]() : iterable[Symbol.iterator]();
+	return makeReadableStream({
 		start() {},
-		async pull(e) {
-			let { done: n, value: r } = await t.next();
-			n ? e.close() : e.enqueue(r);
+		async pull(controller) {
+			const { done, value } = await iter.next();
+			if (done) controller.close();
+			else controller.enqueue(value);
 		},
 		async cancel() {
-			await t.return?.();
+			await iter.return?.();
 		}
 	});
 }
-function Le(e) {
-	if (e[Symbol.asyncIterator]) return e;
-	let t = e.getReader();
+/**
+* Most browsers don't yet have async iterable support for ReadableStream,
+* and Node has a very different way of reading bytes from its "ReadableStream".
+*
+* This polyfill was pulled from https://github.com/MattiasBuelens/web-streams-polyfill/pull/122#issuecomment-1627354490
+*/
+function ReadableStreamToAsyncIterable(stream) {
+	if (stream[Symbol.asyncIterator]) return stream;
+	const reader = stream.getReader();
 	return {
 		async next() {
 			try {
-				let e = await t.read();
-				return e?.done && t.releaseLock(), e;
+				const result = await reader.read();
+				if (result?.done) reader.releaseLock();
+				return result;
 			} catch (e) {
-				throw t.releaseLock(), e;
+				reader.releaseLock();
+				throw e;
 			}
 		},
 		async return() {
-			let e = t.cancel();
-			return t.releaseLock(), await e, {
-				done: !0,
+			const cancelPromise = reader.cancel();
+			reader.releaseLock();
+			await cancelPromise;
+			return {
+				done: true,
 				value: void 0
 			};
 		},
@@ -261,577 +382,830 @@ function Le(e) {
 		}
 	};
 }
-async function Re(e) {
-	if (typeof e != "object" || !e) return;
-	if (e[Symbol.asyncIterator]) {
-		await e[Symbol.asyncIterator]().return?.();
+/**
+* Cancels a ReadableStream we don't need to consume.
+* See https://undici.nodejs.org/#/?id=garbage-collection
+*/
+async function CancelReadableStream(stream) {
+	if (stream === null || typeof stream !== "object") return;
+	if (stream[Symbol.asyncIterator]) {
+		await stream[Symbol.asyncIterator]().return?.();
 		return;
 	}
-	let t = e.getReader(), n = t.cancel();
-	t.releaseLock(), await n;
+	const reader = stream.getReader();
+	const cancelPromise = reader.cancel();
+	reader.releaseLock();
+	await cancelPromise;
 }
 //#endregion
 //#region node_modules/openai/internal/request-options.mjs
-var ze = ({ headers: e, body: t }) => ({
-	bodyHeaders: { "content-type": "application/json" },
-	body: JSON.stringify(t)
-}), Be = "RFC3986", Ve = (e) => String(e), He = {
-	RFC1738: (e) => String(e).replace(/%20/g, "+"),
-	RFC3986: Ve
-}, Ue = (e, t) => (Ue = Object.hasOwn ?? Function.prototype.call.bind(Object.prototype.hasOwnProperty), Ue(e, t)), T = /* @__PURE__ */ (() => {
-	let e = [];
-	for (let t = 0; t < 256; ++t) e.push("%" + ((t < 16 ? "0" : "") + t.toString(16)).toUpperCase());
-	return e;
-})(), We = 1024, Ge = (e, t, n, r, i) => {
-	if (e.length === 0) return e;
-	let a = e;
-	if (typeof e == "symbol" ? a = Symbol.prototype.toString.call(e) : typeof e != "string" && (a = String(e)), n === "iso-8859-1") return escape(a).replace(/%u[0-9a-f]{4}/gi, function(e) {
-		return "%26%23" + parseInt(e.slice(2), 16) + "%3B";
-	});
-	let o = "";
-	for (let e = 0; e < a.length; e += We) {
-		let t = a.length >= We ? a.slice(e, e + We) : a, n = [];
-		for (let e = 0; e < t.length; ++e) {
-			let r = t.charCodeAt(e);
-			if (r === 45 || r === 46 || r === 95 || r === 126 || r >= 48 && r <= 57 || r >= 65 && r <= 90 || r >= 97 && r <= 122 || i === "RFC1738" && (r === 40 || r === 41)) {
-				n[n.length] = t.charAt(e);
-				continue;
-			}
-			if (r < 128) {
-				n[n.length] = T[r];
-				continue;
-			}
-			if (r < 2048) {
-				n[n.length] = T[192 | r >> 6] + T[128 | r & 63];
-				continue;
-			}
-			if (r < 55296 || r >= 57344) {
-				n[n.length] = T[224 | r >> 12] + T[128 | r >> 6 & 63] + T[128 | r & 63];
-				continue;
-			}
-			e += 1, r = 65536 + ((r & 1023) << 10 | t.charCodeAt(e) & 1023), n[n.length] = T[240 | r >> 18] + T[128 | r >> 12 & 63] + T[128 | r >> 6 & 63] + T[128 | r & 63];
-		}
-		o += n.join("");
-	}
-	return o;
+var FallbackEncoder = ({ headers, body }) => {
+	return {
+		bodyHeaders: { "content-type": "application/json" },
+		body: JSON.stringify(body)
+	};
 };
-function Ke(e) {
-	return !e || typeof e != "object" ? !1 : !!(e.constructor && e.constructor.isBuffer && e.constructor.isBuffer(e));
-}
-function qe(e, t) {
-	if (w(e)) {
-		let n = [];
-		for (let r = 0; r < e.length; r += 1) n.push(t(e[r]));
-		return n;
+//#endregion
+//#region node_modules/openai/internal/qs/formats.mjs
+var default_format = "RFC3986";
+var default_formatter = (v) => String(v);
+var formatters = {
+	RFC1738: (v) => String(v).replace(/%20/g, "+"),
+	RFC3986: default_formatter
+};
+//#endregion
+//#region node_modules/openai/internal/qs/utils.mjs
+var has = (obj, key) => (has = Object.hasOwn ?? Function.prototype.call.bind(Object.prototype.hasOwnProperty), has(obj, key));
+var hex_table = /* @__PURE__ */ (() => {
+	const array = [];
+	for (let i = 0; i < 256; ++i) array.push("%" + ((i < 16 ? "0" : "") + i.toString(16)).toUpperCase());
+	return array;
+})();
+var limit = 1024;
+var encode = (str, _defaultEncoder, charset, _kind, format) => {
+	if (str.length === 0) return str;
+	let string = str;
+	if (typeof str === "symbol") string = Symbol.prototype.toString.call(str);
+	else if (typeof str !== "string") string = String(str);
+	if (charset === "iso-8859-1") return escape(string).replace(/%u[0-9a-f]{4}/gi, function($0) {
+		return "%26%23" + parseInt($0.slice(2), 16) + "%3B";
+	});
+	let out = "";
+	for (let j = 0; j < string.length; j += limit) {
+		const segment = string.length >= limit ? string.slice(j, j + limit) : string;
+		const arr = [];
+		for (let i = 0; i < segment.length; ++i) {
+			let c = segment.charCodeAt(i);
+			if (c === 45 || c === 46 || c === 95 || c === 126 || c >= 48 && c <= 57 || c >= 65 && c <= 90 || c >= 97 && c <= 122 || format === "RFC1738" && (c === 40 || c === 41)) {
+				arr[arr.length] = segment.charAt(i);
+				continue;
+			}
+			if (c < 128) {
+				arr[arr.length] = hex_table[c];
+				continue;
+			}
+			if (c < 2048) {
+				arr[arr.length] = hex_table[192 | c >> 6] + hex_table[128 | c & 63];
+				continue;
+			}
+			if (c < 55296 || c >= 57344) {
+				arr[arr.length] = hex_table[224 | c >> 12] + hex_table[128 | c >> 6 & 63] + hex_table[128 | c & 63];
+				continue;
+			}
+			i += 1;
+			c = 65536 + ((c & 1023) << 10 | segment.charCodeAt(i) & 1023);
+			arr[arr.length] = hex_table[240 | c >> 18] + hex_table[128 | c >> 12 & 63] + hex_table[128 | c >> 6 & 63] + hex_table[128 | c & 63];
+		}
+		out += arr.join("");
 	}
-	return t(e);
+	return out;
+};
+function is_buffer(obj) {
+	if (!obj || typeof obj !== "object") return false;
+	return !!(obj.constructor && obj.constructor.isBuffer && obj.constructor.isBuffer(obj));
+}
+function maybe_map(val, fn) {
+	if (isArray(val)) {
+		const mapped = [];
+		for (let i = 0; i < val.length; i += 1) mapped.push(fn(val[i]));
+		return mapped;
+	}
+	return fn(val);
 }
 //#endregion
 //#region node_modules/openai/internal/qs/stringify.mjs
-var Je = {
-	brackets(e) {
-		return String(e) + "[]";
+var array_prefix_generators = {
+	brackets(prefix) {
+		return String(prefix) + "[]";
 	},
 	comma: "comma",
-	indices(e, t) {
-		return String(e) + "[" + t + "]";
+	indices(prefix, key) {
+		return String(prefix) + "[" + key + "]";
 	},
-	repeat(e) {
-		return String(e);
+	repeat(prefix) {
+		return String(prefix);
 	}
-}, Ye = function(e, t) {
-	Array.prototype.push.apply(e, w(t) ? t : [t]);
-}, Xe, E = {
-	addQueryPrefix: !1,
-	allowDots: !1,
-	allowEmptyArrays: !1,
+};
+var push_to_array = function(arr, value_or_array) {
+	Array.prototype.push.apply(arr, isArray(value_or_array) ? value_or_array : [value_or_array]);
+};
+var toISOString;
+var defaults = {
+	addQueryPrefix: false,
+	allowDots: false,
+	allowEmptyArrays: false,
 	arrayFormat: "indices",
 	charset: "utf-8",
-	charsetSentinel: !1,
+	charsetSentinel: false,
 	delimiter: "&",
-	encode: !0,
-	encodeDotInKeys: !1,
-	encoder: Ge,
-	encodeValuesOnly: !1,
-	format: Be,
-	formatter: Ve,
-	indices: !1,
-	serializeDate(e) {
-		return (Xe ??= Function.prototype.call.bind(Date.prototype.toISOString))(e);
+	encode: true,
+	encodeDotInKeys: false,
+	encoder: encode,
+	encodeValuesOnly: false,
+	format: default_format,
+	formatter: default_formatter,
+	/** @deprecated */
+	indices: false,
+	serializeDate(date) {
+		return (toISOString ?? (toISOString = Function.prototype.call.bind(Date.prototype.toISOString)))(date);
 	},
-	skipNulls: !1,
-	strictNullHandling: !1
+	skipNulls: false,
+	strictNullHandling: false
 };
-function Ze(e) {
-	return typeof e == "string" || typeof e == "number" || typeof e == "boolean" || typeof e == "symbol" || typeof e == "bigint";
+function is_non_nullish_primitive(v) {
+	return typeof v === "string" || typeof v === "number" || typeof v === "boolean" || typeof v === "symbol" || typeof v === "bigint";
 }
-var Qe = {};
-function $e(e, t, n, r, i, a, o, s, c, l, u, d, f, p, m, h, g, _) {
-	let v = e, y = _, ee = 0, b = !1;
-	for (; (y = y.get(Qe)) !== void 0 && !b;) {
-		let t = y.get(e);
-		if (ee += 1, t !== void 0) {
-			if (t === ee) throw RangeError("Cyclic object value");
-			b = !0;
+var sentinel = {};
+function inner_stringify(object, prefix, generateArrayPrefix, commaRoundTrip, allowEmptyArrays, strictNullHandling, skipNulls, encodeDotInKeys, encoder, filter, sort, allowDots, serializeDate, format, formatter, encodeValuesOnly, charset, sideChannel) {
+	let obj = object;
+	let tmp_sc = sideChannel;
+	let step = 0;
+	let find_flag = false;
+	while ((tmp_sc = tmp_sc.get(sentinel)) !== void 0 && !find_flag) {
+		const pos = tmp_sc.get(object);
+		step += 1;
+		if (typeof pos !== "undefined") if (pos === step) throw new RangeError("Cyclic object value");
+		else find_flag = true;
+		if (typeof tmp_sc.get(sentinel) === "undefined") step = 0;
+	}
+	if (typeof filter === "function") obj = filter(prefix, obj);
+	else if (obj instanceof Date) obj = serializeDate?.(obj);
+	else if (generateArrayPrefix === "comma" && isArray(obj)) obj = maybe_map(obj, function(value) {
+		if (value instanceof Date) return serializeDate?.(value);
+		return value;
+	});
+	if (obj === null) {
+		if (strictNullHandling) return encoder && !encodeValuesOnly ? encoder(prefix, defaults.encoder, charset, "key", format) : prefix;
+		obj = "";
+	}
+	if (is_non_nullish_primitive(obj) || is_buffer(obj)) {
+		if (encoder) {
+			const key_value = encodeValuesOnly ? prefix : encoder(prefix, defaults.encoder, charset, "key", format);
+			return [formatter?.(key_value) + "=" + formatter?.(encoder(obj, defaults.encoder, charset, "value", format))];
 		}
-		y.get(Qe) === void 0 && (ee = 0);
+		return [formatter?.(prefix) + "=" + formatter?.(String(obj))];
 	}
-	if (typeof l == "function" ? v = l(t, v) : v instanceof Date ? v = f?.(v) : n === "comma" && w(v) && (v = qe(v, function(e) {
-		return e instanceof Date ? f?.(e) : e;
-	})), v === null) {
-		if (a) return c && !h ? c(t, E.encoder, g, "key", p) : t;
-		v = "";
-	}
-	if (Ze(v) || Ke(v)) {
-		if (c) {
-			let e = h ? t : c(t, E.encoder, g, "key", p);
-			return [m?.(e) + "=" + m?.(c(v, E.encoder, g, "value", p))];
-		}
-		return [m?.(t) + "=" + m?.(String(v))];
-	}
-	let x = [];
-	if (v === void 0) return x;
-	let S;
-	if (n === "comma" && w(v)) h && c && (v = qe(v, c)), S = [{ value: v.length > 0 ? v.join(",") || null : void 0 }];
-	else if (w(l)) S = l;
+	const values = [];
+	if (typeof obj === "undefined") return values;
+	let obj_keys;
+	if (generateArrayPrefix === "comma" && isArray(obj)) {
+		if (encodeValuesOnly && encoder) obj = maybe_map(obj, encoder);
+		obj_keys = [{ value: obj.length > 0 ? obj.join(",") || null : void 0 }];
+	} else if (isArray(filter)) obj_keys = filter;
 	else {
-		let e = Object.keys(v);
-		S = u ? e.sort(u) : e;
+		const keys = Object.keys(obj);
+		obj_keys = sort ? keys.sort(sort) : keys;
 	}
-	let C = s ? String(t).replace(/\./g, "%2E") : String(t), te = r && w(v) && v.length === 1 ? C + "[]" : C;
-	if (i && w(v) && v.length === 0) return te + "[]";
-	for (let t = 0; t < S.length; ++t) {
-		let y = S[t], b = typeof y == "object" && y.value !== void 0 ? y.value : v[y];
-		if (o && b === null) continue;
-		let C = d && s ? y.replace(/\./g, "%2E") : y, ne = w(v) ? typeof n == "function" ? n(te, C) : te : te + (d ? "." + C : "[" + C + "]");
-		_.set(e, ee);
-		let re = /* @__PURE__ */ new WeakMap();
-		re.set(Qe, _), Ye(x, $e(b, ne, n, r, i, a, o, s, n === "comma" && h && w(v) ? null : c, l, u, d, f, p, m, h, g, re));
+	const encoded_prefix = encodeDotInKeys ? String(prefix).replace(/\./g, "%2E") : String(prefix);
+	const adjusted_prefix = commaRoundTrip && isArray(obj) && obj.length === 1 ? encoded_prefix + "[]" : encoded_prefix;
+	if (allowEmptyArrays && isArray(obj) && obj.length === 0) return adjusted_prefix + "[]";
+	for (let j = 0; j < obj_keys.length; ++j) {
+		const key = obj_keys[j];
+		const value = typeof key === "object" && typeof key.value !== "undefined" ? key.value : obj[key];
+		if (skipNulls && value === null) continue;
+		const encoded_key = allowDots && encodeDotInKeys ? key.replace(/\./g, "%2E") : key;
+		const key_prefix = isArray(obj) ? typeof generateArrayPrefix === "function" ? generateArrayPrefix(adjusted_prefix, encoded_key) : adjusted_prefix : adjusted_prefix + (allowDots ? "." + encoded_key : "[" + encoded_key + "]");
+		sideChannel.set(object, step);
+		const valueSideChannel = /* @__PURE__ */ new WeakMap();
+		valueSideChannel.set(sentinel, sideChannel);
+		push_to_array(values, inner_stringify(value, key_prefix, generateArrayPrefix, commaRoundTrip, allowEmptyArrays, strictNullHandling, skipNulls, encodeDotInKeys, generateArrayPrefix === "comma" && encodeValuesOnly && isArray(obj) ? null : encoder, filter, sort, allowDots, serializeDate, format, formatter, encodeValuesOnly, charset, valueSideChannel));
 	}
-	return x;
+	return values;
 }
-function et(e = E) {
-	if (e.allowEmptyArrays !== void 0 && typeof e.allowEmptyArrays != "boolean") throw TypeError("`allowEmptyArrays` option can only be `true` or `false`, when provided");
-	if (e.encodeDotInKeys !== void 0 && typeof e.encodeDotInKeys != "boolean") throw TypeError("`encodeDotInKeys` option can only be `true` or `false`, when provided");
-	if (e.encoder !== null && e.encoder !== void 0 && typeof e.encoder != "function") throw TypeError("Encoder has to be a function.");
-	let t = e.charset || E.charset;
-	if (e.charset !== void 0 && e.charset !== "utf-8" && e.charset !== "iso-8859-1") throw TypeError("The charset option must be either utf-8, iso-8859-1, or undefined");
-	let n = Be;
-	if (e.format !== void 0) {
-		if (!Ue(He, e.format)) throw TypeError("Unknown format option provided.");
-		n = e.format;
+function normalize_stringify_options(opts = defaults) {
+	if (typeof opts.allowEmptyArrays !== "undefined" && typeof opts.allowEmptyArrays !== "boolean") throw new TypeError("`allowEmptyArrays` option can only be `true` or `false`, when provided");
+	if (typeof opts.encodeDotInKeys !== "undefined" && typeof opts.encodeDotInKeys !== "boolean") throw new TypeError("`encodeDotInKeys` option can only be `true` or `false`, when provided");
+	if (opts.encoder !== null && typeof opts.encoder !== "undefined" && typeof opts.encoder !== "function") throw new TypeError("Encoder has to be a function.");
+	const charset = opts.charset || defaults.charset;
+	if (typeof opts.charset !== "undefined" && opts.charset !== "utf-8" && opts.charset !== "iso-8859-1") throw new TypeError("The charset option must be either utf-8, iso-8859-1, or undefined");
+	let format = default_format;
+	if (typeof opts.format !== "undefined") {
+		if (!has(formatters, opts.format)) throw new TypeError("Unknown format option provided.");
+		format = opts.format;
 	}
-	let r = He[n], i = E.filter;
-	(typeof e.filter == "function" || w(e.filter)) && (i = e.filter);
-	let a;
-	if (a = e.arrayFormat && e.arrayFormat in Je ? e.arrayFormat : "indices" in e ? e.indices ? "indices" : "repeat" : E.arrayFormat, "commaRoundTrip" in e && typeof e.commaRoundTrip != "boolean") throw TypeError("`commaRoundTrip` must be a boolean, or absent");
-	let o = e.allowDots === void 0 ? e.encodeDotInKeys ? !0 : E.allowDots : !!e.allowDots;
+	const formatter = formatters[format];
+	let filter = defaults.filter;
+	if (typeof opts.filter === "function" || isArray(opts.filter)) filter = opts.filter;
+	let arrayFormat;
+	if (opts.arrayFormat && opts.arrayFormat in array_prefix_generators) arrayFormat = opts.arrayFormat;
+	else if ("indices" in opts) arrayFormat = opts.indices ? "indices" : "repeat";
+	else arrayFormat = defaults.arrayFormat;
+	if ("commaRoundTrip" in opts && typeof opts.commaRoundTrip !== "boolean") throw new TypeError("`commaRoundTrip` must be a boolean, or absent");
+	const allowDots = typeof opts.allowDots === "undefined" ? !!opts.encodeDotInKeys === true ? true : defaults.allowDots : !!opts.allowDots;
 	return {
-		addQueryPrefix: typeof e.addQueryPrefix == "boolean" ? e.addQueryPrefix : E.addQueryPrefix,
-		allowDots: o,
-		allowEmptyArrays: typeof e.allowEmptyArrays == "boolean" ? !!e.allowEmptyArrays : E.allowEmptyArrays,
-		arrayFormat: a,
-		charset: t,
-		charsetSentinel: typeof e.charsetSentinel == "boolean" ? e.charsetSentinel : E.charsetSentinel,
-		commaRoundTrip: !!e.commaRoundTrip,
-		delimiter: e.delimiter === void 0 ? E.delimiter : e.delimiter,
-		encode: typeof e.encode == "boolean" ? e.encode : E.encode,
-		encodeDotInKeys: typeof e.encodeDotInKeys == "boolean" ? e.encodeDotInKeys : E.encodeDotInKeys,
-		encoder: typeof e.encoder == "function" ? e.encoder : E.encoder,
-		encodeValuesOnly: typeof e.encodeValuesOnly == "boolean" ? e.encodeValuesOnly : E.encodeValuesOnly,
-		filter: i,
-		format: n,
-		formatter: r,
-		serializeDate: typeof e.serializeDate == "function" ? e.serializeDate : E.serializeDate,
-		skipNulls: typeof e.skipNulls == "boolean" ? e.skipNulls : E.skipNulls,
-		sort: typeof e.sort == "function" ? e.sort : null,
-		strictNullHandling: typeof e.strictNullHandling == "boolean" ? e.strictNullHandling : E.strictNullHandling
+		addQueryPrefix: typeof opts.addQueryPrefix === "boolean" ? opts.addQueryPrefix : defaults.addQueryPrefix,
+		allowDots,
+		allowEmptyArrays: typeof opts.allowEmptyArrays === "boolean" ? !!opts.allowEmptyArrays : defaults.allowEmptyArrays,
+		arrayFormat,
+		charset,
+		charsetSentinel: typeof opts.charsetSentinel === "boolean" ? opts.charsetSentinel : defaults.charsetSentinel,
+		commaRoundTrip: !!opts.commaRoundTrip,
+		delimiter: typeof opts.delimiter === "undefined" ? defaults.delimiter : opts.delimiter,
+		encode: typeof opts.encode === "boolean" ? opts.encode : defaults.encode,
+		encodeDotInKeys: typeof opts.encodeDotInKeys === "boolean" ? opts.encodeDotInKeys : defaults.encodeDotInKeys,
+		encoder: typeof opts.encoder === "function" ? opts.encoder : defaults.encoder,
+		encodeValuesOnly: typeof opts.encodeValuesOnly === "boolean" ? opts.encodeValuesOnly : defaults.encodeValuesOnly,
+		filter,
+		format,
+		formatter,
+		serializeDate: typeof opts.serializeDate === "function" ? opts.serializeDate : defaults.serializeDate,
+		skipNulls: typeof opts.skipNulls === "boolean" ? opts.skipNulls : defaults.skipNulls,
+		sort: typeof opts.sort === "function" ? opts.sort : null,
+		strictNullHandling: typeof opts.strictNullHandling === "boolean" ? opts.strictNullHandling : defaults.strictNullHandling
 	};
 }
-function tt(e, t = {}) {
-	let n = e, r = et(t), i, a;
-	typeof r.filter == "function" ? (a = r.filter, n = a("", n)) : w(r.filter) && (a = r.filter, i = a);
-	let o = [];
-	if (typeof n != "object" || !n) return "";
-	let s = Je[r.arrayFormat], c = s === "comma" && r.commaRoundTrip;
-	i ||= Object.keys(n), r.sort && i.sort(r.sort);
-	let l = /* @__PURE__ */ new WeakMap();
-	for (let e = 0; e < i.length; ++e) {
-		let t = i[e];
-		r.skipNulls && n[t] === null || Ye(o, $e(n[t], t, s, c, r.allowEmptyArrays, r.strictNullHandling, r.skipNulls, r.encodeDotInKeys, r.encode ? r.encoder : null, r.filter, r.sort, r.allowDots, r.serializeDate, r.format, r.formatter, r.encodeValuesOnly, r.charset, l));
+function stringify(object, opts = {}) {
+	let obj = object;
+	const options = normalize_stringify_options(opts);
+	let obj_keys;
+	let filter;
+	if (typeof options.filter === "function") {
+		filter = options.filter;
+		obj = filter("", obj);
+	} else if (isArray(options.filter)) {
+		filter = options.filter;
+		obj_keys = filter;
 	}
-	let u = o.join(r.delimiter), d = r.addQueryPrefix === !0 ? "?" : "";
-	return r.charsetSentinel && (r.charset === "iso-8859-1" ? d += "utf8=%26%2310003%3B&" : d += "utf8=%E2%9C%93&"), u.length > 0 ? d + u : "";
+	const keys = [];
+	if (typeof obj !== "object" || obj === null) return "";
+	const generateArrayPrefix = array_prefix_generators[options.arrayFormat];
+	const commaRoundTrip = generateArrayPrefix === "comma" && options.commaRoundTrip;
+	if (!obj_keys) obj_keys = Object.keys(obj);
+	if (options.sort) obj_keys.sort(options.sort);
+	const sideChannel = /* @__PURE__ */ new WeakMap();
+	for (let i = 0; i < obj_keys.length; ++i) {
+		const key = obj_keys[i];
+		if (options.skipNulls && obj[key] === null) continue;
+		push_to_array(keys, inner_stringify(obj[key], key, generateArrayPrefix, commaRoundTrip, options.allowEmptyArrays, options.strictNullHandling, options.skipNulls, options.encodeDotInKeys, options.encode ? options.encoder : null, options.filter, options.sort, options.allowDots, options.serializeDate, options.format, options.formatter, options.encodeValuesOnly, options.charset, sideChannel));
+	}
+	const joined = keys.join(options.delimiter);
+	let prefix = options.addQueryPrefix === true ? "?" : "";
+	if (options.charsetSentinel) if (options.charset === "iso-8859-1") prefix += "utf8=%26%2310003%3B&";
+	else prefix += "utf8=%E2%9C%93&";
+	return joined.length > 0 ? prefix + joined : "";
 }
 //#endregion
 //#region node_modules/openai/internal/utils/query.mjs
-function nt(e) {
-	return tt(e, { arrayFormat: "brackets" });
+function stringifyQuery(query) {
+	return stringify(query, { arrayFormat: "brackets" });
 }
 //#endregion
 //#region node_modules/openai/internal/utils/bytes.mjs
-function rt(e) {
-	let t = 0;
-	for (let n of e) t += n.length;
-	let n = new Uint8Array(t), r = 0;
-	for (let t of e) n.set(t, r), r += t.length;
-	return n;
+function concatBytes(buffers) {
+	let length = 0;
+	for (const buffer of buffers) length += buffer.length;
+	const output = new Uint8Array(length);
+	let index = 0;
+	for (const buffer of buffers) {
+		output.set(buffer, index);
+		index += buffer.length;
+	}
+	return output;
 }
-var it;
-function at(e) {
-	let t;
-	return (it ??= (t = new globalThis.TextEncoder(), t.encode.bind(t)))(e);
+var encodeUTF8_;
+function encodeUTF8(str) {
+	let encoder;
+	return (encodeUTF8_ ?? (encoder = new globalThis.TextEncoder(), encodeUTF8_ = encoder.encode.bind(encoder)))(str);
 }
-var ot;
-function st(e) {
-	let t;
-	return (ot ??= (t = new globalThis.TextDecoder(), t.decode.bind(t)))(e);
+var decodeUTF8_;
+function decodeUTF8(bytes) {
+	let decoder;
+	return (decodeUTF8_ ?? (decoder = new globalThis.TextDecoder(), decodeUTF8_ = decoder.decode.bind(decoder)))(bytes);
 }
 //#endregion
 //#region node_modules/openai/internal/decoders/line.mjs
-var D, O, ct = class {
+var _LineDecoder_buffer, _LineDecoder_carriageReturnIndex;
+/**
+* A re-implementation of httpx's `LineDecoder` in Python that handles incrementally
+* reading lines from text.
+*
+* https://github.com/encode/httpx/blob/920333ea98118e9cf617f246905d7b202510941c/httpx/_decoders.py#L258
+*/
+var LineDecoder = class {
 	constructor() {
-		D.set(this, void 0), O.set(this, void 0), g(this, D, new Uint8Array(), "f"), g(this, O, null, "f");
+		_LineDecoder_buffer.set(this, void 0);
+		_LineDecoder_carriageReturnIndex.set(this, void 0);
+		__classPrivateFieldSet(this, _LineDecoder_buffer, new Uint8Array(), "f");
+		__classPrivateFieldSet(this, _LineDecoder_carriageReturnIndex, null, "f");
 	}
-	decode(e) {
-		if (e == null) return [];
-		let t = e instanceof ArrayBuffer ? new Uint8Array(e) : typeof e == "string" ? at(e) : e;
-		g(this, D, rt([_(this, D, "f"), t]), "f");
-		let n = [], r;
-		for (; (r = lt(_(this, D, "f"), _(this, O, "f"))) != null;) {
-			if (r.carriage && _(this, O, "f") == null) {
-				g(this, O, r.index, "f");
+	decode(chunk) {
+		if (chunk == null) return [];
+		const binaryChunk = chunk instanceof ArrayBuffer ? new Uint8Array(chunk) : typeof chunk === "string" ? encodeUTF8(chunk) : chunk;
+		__classPrivateFieldSet(this, _LineDecoder_buffer, concatBytes([__classPrivateFieldGet(this, _LineDecoder_buffer, "f"), binaryChunk]), "f");
+		const lines = [];
+		let patternIndex;
+		while ((patternIndex = findNewlineIndex(__classPrivateFieldGet(this, _LineDecoder_buffer, "f"), __classPrivateFieldGet(this, _LineDecoder_carriageReturnIndex, "f"))) != null) {
+			if (patternIndex.carriage && __classPrivateFieldGet(this, _LineDecoder_carriageReturnIndex, "f") == null) {
+				__classPrivateFieldSet(this, _LineDecoder_carriageReturnIndex, patternIndex.index, "f");
 				continue;
 			}
-			if (_(this, O, "f") != null && (r.index !== _(this, O, "f") + 1 || r.carriage)) {
-				n.push(st(_(this, D, "f").subarray(0, _(this, O, "f") - 1))), g(this, D, _(this, D, "f").subarray(_(this, O, "f")), "f"), g(this, O, null, "f");
+			if (__classPrivateFieldGet(this, _LineDecoder_carriageReturnIndex, "f") != null && (patternIndex.index !== __classPrivateFieldGet(this, _LineDecoder_carriageReturnIndex, "f") + 1 || patternIndex.carriage)) {
+				lines.push(decodeUTF8(__classPrivateFieldGet(this, _LineDecoder_buffer, "f").subarray(0, __classPrivateFieldGet(this, _LineDecoder_carriageReturnIndex, "f") - 1)));
+				__classPrivateFieldSet(this, _LineDecoder_buffer, __classPrivateFieldGet(this, _LineDecoder_buffer, "f").subarray(__classPrivateFieldGet(this, _LineDecoder_carriageReturnIndex, "f")), "f");
+				__classPrivateFieldSet(this, _LineDecoder_carriageReturnIndex, null, "f");
 				continue;
 			}
-			let e = _(this, O, "f") === null ? r.preceding : r.preceding - 1, t = st(_(this, D, "f").subarray(0, e));
-			n.push(t), g(this, D, _(this, D, "f").subarray(r.index), "f"), g(this, O, null, "f");
+			const endIndex = __classPrivateFieldGet(this, _LineDecoder_carriageReturnIndex, "f") !== null ? patternIndex.preceding - 1 : patternIndex.preceding;
+			const line = decodeUTF8(__classPrivateFieldGet(this, _LineDecoder_buffer, "f").subarray(0, endIndex));
+			lines.push(line);
+			__classPrivateFieldSet(this, _LineDecoder_buffer, __classPrivateFieldGet(this, _LineDecoder_buffer, "f").subarray(patternIndex.index), "f");
+			__classPrivateFieldSet(this, _LineDecoder_carriageReturnIndex, null, "f");
 		}
-		return n;
+		return lines;
 	}
 	flush() {
-		return _(this, D, "f").length ? this.decode("\n") : [];
+		if (!__classPrivateFieldGet(this, _LineDecoder_buffer, "f").length) return [];
+		return this.decode("\n");
 	}
 };
-D = /* @__PURE__ */ new WeakMap(), O = /* @__PURE__ */ new WeakMap(), ct.NEWLINE_CHARS = new Set(["\n", "\r"]), ct.NEWLINE_REGEXP = /\r\n|[\n\r]/g;
-function lt(e, t) {
-	for (let n = t ?? 0; n < e.length; n++) {
-		if (e[n] === 10) return {
-			preceding: n,
-			index: n + 1,
-			carriage: !1
+_LineDecoder_buffer = /* @__PURE__ */ new WeakMap(), _LineDecoder_carriageReturnIndex = /* @__PURE__ */ new WeakMap();
+LineDecoder.NEWLINE_CHARS = new Set(["\n", "\r"]);
+LineDecoder.NEWLINE_REGEXP = /\r\n|[\n\r]/g;
+/**
+* This function searches the buffer for the end patterns, (\r or \n)
+* and returns an object with the index preceding the matched newline and the
+* index after the newline char. `null` is returned if no new line is found.
+*
+* ```ts
+* findNewLineIndex('abc\ndef') -> { preceding: 2, index: 3 }
+* ```
+*/
+function findNewlineIndex(buffer, startIndex) {
+	const newline = 10;
+	const carriage = 13;
+	for (let i = startIndex ?? 0; i < buffer.length; i++) {
+		if (buffer[i] === newline) return {
+			preceding: i,
+			index: i + 1,
+			carriage: false
 		};
-		if (e[n] === 13) return {
-			preceding: n,
-			index: n + 1,
-			carriage: !0
+		if (buffer[i] === carriage) return {
+			preceding: i,
+			index: i + 1,
+			carriage: true
 		};
 	}
 	return null;
 }
-function ut(e) {
-	for (let t = 0; t < e.length - 1; t++) {
-		if (e[t] === 10 && e[t + 1] === 10 || e[t] === 13 && e[t + 1] === 13) return t + 2;
-		if (e[t] === 13 && e[t + 1] === 10 && t + 3 < e.length && e[t + 2] === 13 && e[t + 3] === 10) return t + 4;
+function findDoubleNewlineIndex(buffer) {
+	const newline = 10;
+	const carriage = 13;
+	for (let i = 0; i < buffer.length - 1; i++) {
+		if (buffer[i] === newline && buffer[i + 1] === newline) return i + 2;
+		if (buffer[i] === carriage && buffer[i + 1] === carriage) return i + 2;
+		if (buffer[i] === carriage && buffer[i + 1] === newline && i + 3 < buffer.length && buffer[i + 2] === carriage && buffer[i + 3] === newline) return i + 4;
 	}
 	return -1;
 }
 //#endregion
 //#region node_modules/openai/internal/utils/log.mjs
-var dt = {
+var levelNumbers = {
 	off: 0,
 	error: 200,
 	warn: 300,
 	info: 400,
 	debug: 500
-}, ft = (e, t, n) => {
-	if (e) {
-		if (be(dt, e)) return e;
-		k(n).warn(`${t} was set to ${JSON.stringify(e)}, expected one of ${JSON.stringify(Object.keys(dt))}`);
-	}
 };
-function pt() {}
-function mt(e, t, n) {
-	return !t || dt[e] > dt[n] ? pt : t[e].bind(t);
+var parseLogLevel = (maybeLevel, sourceName, client) => {
+	if (!maybeLevel) return;
+	if (hasOwn(levelNumbers, maybeLevel)) return maybeLevel;
+	loggerFor(client).warn(`${sourceName} was set to ${JSON.stringify(maybeLevel)}, expected one of ${JSON.stringify(Object.keys(levelNumbers))}`);
+};
+function noop() {}
+function makeLogFn(fnLevel, logger, logLevel) {
+	if (!logger || levelNumbers[fnLevel] > levelNumbers[logLevel]) return noop;
+	else return logger[fnLevel].bind(logger);
 }
-var ht = {
-	error: pt,
-	warn: pt,
-	info: pt,
-	debug: pt
-}, gt = /* @__PURE__ */ new WeakMap();
-function k(e) {
-	let t = e.logger, n = e.logLevel ?? "off";
-	if (!t) return ht;
-	let r = gt.get(t);
-	if (r && r[0] === n) return r[1];
-	let i = {
-		error: mt("error", t, n),
-		warn: mt("warn", t, n),
-		info: mt("info", t, n),
-		debug: mt("debug", t, n)
+var noopLogger = {
+	error: noop,
+	warn: noop,
+	info: noop,
+	debug: noop
+};
+var cachedLoggers = /* @__PURE__ */ new WeakMap();
+function loggerFor(client) {
+	const logger = client.logger;
+	const logLevel = client.logLevel ?? "off";
+	if (!logger) return noopLogger;
+	const cachedLogger = cachedLoggers.get(logger);
+	if (cachedLogger && cachedLogger[0] === logLevel) return cachedLogger[1];
+	const levelLogger = {
+		error: makeLogFn("error", logger, logLevel),
+		warn: makeLogFn("warn", logger, logLevel),
+		info: makeLogFn("info", logger, logLevel),
+		debug: makeLogFn("debug", logger, logLevel)
 	};
-	return gt.set(t, [n, i]), i;
+	cachedLoggers.set(logger, [logLevel, levelLogger]);
+	return levelLogger;
 }
-var _t = (e) => (e.options && (e.options = { ...e.options }, delete e.options.headers), e.headers &&= Object.fromEntries((e.headers instanceof Headers ? [...e.headers] : Object.entries(e.headers)).map(([e, t]) => [e, e.toLowerCase() === "authorization" || e.toLowerCase() === "api-key" || e.toLowerCase() === "x-api-key" || e.toLowerCase() === "cookie" || e.toLowerCase() === "set-cookie" ? "***" : t])), "retryOfRequestLogID" in e && (e.retryOfRequestLogID && (e.retryOf = e.retryOfRequestLogID), delete e.retryOfRequestLogID), e), vt, yt = class e {
-	constructor(e, t, n) {
-		this.iterator = e, vt.set(this, void 0), this.controller = t, g(this, vt, n, "f");
+var formatRequestDetails = (details) => {
+	if (details.options) {
+		details.options = { ...details.options };
+		delete details.options["headers"];
 	}
-	static fromSSEResponse(t, n, r, i) {
-		let a = !1, o = r ? k(r) : console;
-		async function* s() {
-			if (a) throw new b("Cannot iterate over a consumed stream, use `.tee()` to split the stream.");
-			a = !0;
-			let e = !1;
+	if (details.headers) details.headers = Object.fromEntries((details.headers instanceof Headers ? [...details.headers] : Object.entries(details.headers)).map(([name, value]) => [name, name.toLowerCase() === "authorization" || name.toLowerCase() === "api-key" || name.toLowerCase() === "x-api-key" || name.toLowerCase() === "cookie" || name.toLowerCase() === "set-cookie" ? "***" : value]));
+	if ("retryOfRequestLogID" in details) {
+		if (details.retryOfRequestLogID) details.retryOf = details.retryOfRequestLogID;
+		delete details.retryOfRequestLogID;
+	}
+	return details;
+};
+//#endregion
+//#region node_modules/openai/core/streaming.mjs
+var _Stream_client;
+var Stream = class Stream {
+	constructor(iterator, controller, client) {
+		this.iterator = iterator;
+		_Stream_client.set(this, void 0);
+		this.controller = controller;
+		__classPrivateFieldSet(this, _Stream_client, client, "f");
+	}
+	static fromSSEResponse(response, controller, client, synthesizeEventData) {
+		let consumed = false;
+		const logger = client ? loggerFor(client) : console;
+		async function* iterator() {
+			if (consumed) throw new OpenAIError("Cannot iterate over a consumed stream, use `.tee()` to split the stream.");
+			consumed = true;
+			let done = false;
 			try {
-				for await (let r of bt(t, n)) if (!e) {
-					if (r.data.startsWith("[DONE]")) {
-						e = !0;
+				for await (const sse of _iterSSEMessages(response, controller)) {
+					if (done) continue;
+					if (sse.data.startsWith("[DONE]")) {
+						done = true;
 						continue;
 					}
-					if (r.event === null || !r.event.startsWith("thread.")) {
-						let e;
+					if (sse.event === null || !sse.event.startsWith("thread.")) {
+						let data;
 						try {
-							e = JSON.parse(r.data);
+							data = JSON.parse(sse.data);
 						} catch (e) {
-							throw o.error("Could not parse message into JSON:", r.data), o.error("From chunk:", r.raw), e;
+							logger.error(`Could not parse message into JSON:`, sse.data);
+							logger.error(`From chunk:`, sse.raw);
+							throw e;
 						}
-						if (e && e.error) throw new x(void 0, e.error, void 0, t.headers);
-						yield i ? {
-							event: r.event,
-							data: e
-						} : e;
+						if (data && data.error) throw new APIError(void 0, data.error, void 0, response.headers);
+						yield synthesizeEventData ? {
+							event: sse.event,
+							data
+						} : data;
 					} else {
-						let e;
+						let data;
 						try {
-							e = JSON.parse(r.data);
+							data = JSON.parse(sse.data);
 						} catch (e) {
-							throw console.error("Could not parse message into JSON:", r.data), console.error("From chunk:", r.raw), e;
+							console.error(`Could not parse message into JSON:`, sse.data);
+							console.error(`From chunk:`, sse.raw);
+							throw e;
 						}
-						if (r.event == "error") throw new x(void 0, e.error, e.message, void 0);
+						if (sse.event == "error") throw new APIError(void 0, data.error, data.message, void 0);
 						yield {
-							event: r.event,
-							data: e
+							event: sse.event,
+							data
 						};
 					}
 				}
-				e = !0;
+				done = true;
 			} catch (e) {
-				if (y(e)) return;
+				if (isAbortError(e)) return;
 				throw e;
 			} finally {
-				e || n.abort();
+				if (!done) controller.abort();
 			}
 		}
-		return new e(s, n, r);
+		return new Stream(iterator, controller, client);
 	}
-	static fromReadableStream(t, n, r) {
-		let i = !1;
-		async function* a() {
-			let e = new ct(), n = Le(t);
-			for await (let t of n) for (let n of e.decode(t)) yield n;
-			for (let t of e.flush()) yield t;
+	/**
+	* Generates a Stream from a newline-separated ReadableStream
+	* where each item is a JSON value.
+	*/
+	static fromReadableStream(readableStream, controller, client) {
+		let consumed = false;
+		async function* iterLines() {
+			const lineDecoder = new LineDecoder();
+			const iter = ReadableStreamToAsyncIterable(readableStream);
+			for await (const chunk of iter) for (const line of lineDecoder.decode(chunk)) yield line;
+			for (const line of lineDecoder.flush()) yield line;
 		}
-		async function* o() {
-			if (i) throw new b("Cannot iterate over a consumed stream, use `.tee()` to split the stream.");
-			i = !0;
-			let e = !1;
+		async function* iterator() {
+			if (consumed) throw new OpenAIError("Cannot iterate over a consumed stream, use `.tee()` to split the stream.");
+			consumed = true;
+			let done = false;
 			try {
-				for await (let t of a()) e || t && (yield JSON.parse(t));
-				e = !0;
+				for await (const line of iterLines()) {
+					if (done) continue;
+					if (line) yield JSON.parse(line);
+				}
+				done = true;
 			} catch (e) {
-				if (y(e)) return;
+				if (isAbortError(e)) return;
 				throw e;
 			} finally {
-				e || n.abort();
+				if (!done) controller.abort();
 			}
 		}
-		return new e(o, n, r);
+		return new Stream(iterator, controller, client);
 	}
-	[(vt = /* @__PURE__ */ new WeakMap(), Symbol.asyncIterator)]() {
+	[(_Stream_client = /* @__PURE__ */ new WeakMap(), Symbol.asyncIterator)]() {
 		return this.iterator();
 	}
+	/**
+	* Splits the stream into two streams which can be
+	* independently read from at different speeds.
+	*/
 	tee() {
-		let t = [], n = [], r = this.iterator(), i = (e) => ({ next: () => {
-			if (e.length === 0) {
-				let e = r.next();
-				t.push(e), n.push(e);
-			}
-			return e.shift();
-		} });
-		return [new e(() => i(t), this.controller, _(this, vt, "f")), new e(() => i(n), this.controller, _(this, vt, "f"))];
+		const left = [];
+		const right = [];
+		const iterator = this.iterator();
+		const teeIterator = (queue) => {
+			return { next: () => {
+				if (queue.length === 0) {
+					const result = iterator.next();
+					left.push(result);
+					right.push(result);
+				}
+				return queue.shift();
+			} };
+		};
+		return [new Stream(() => teeIterator(left), this.controller, __classPrivateFieldGet(this, _Stream_client, "f")), new Stream(() => teeIterator(right), this.controller, __classPrivateFieldGet(this, _Stream_client, "f"))];
 	}
+	/**
+	* Converts this stream to a newline-separated ReadableStream of
+	* JSON stringified values in the stream
+	* which can be turned back into a Stream with `Stream.fromReadableStream()`.
+	*/
 	toReadableStream() {
-		let e = this, t;
-		return Fe({
+		const self = this;
+		let iter;
+		return makeReadableStream({
 			async start() {
-				t = e[Symbol.asyncIterator]();
+				iter = self[Symbol.asyncIterator]();
 			},
-			async pull(e) {
+			async pull(ctrl) {
 				try {
-					let { value: n, done: r } = await t.next();
-					if (r) return e.close();
-					let i = at(JSON.stringify(n) + "\n");
-					e.enqueue(i);
-				} catch (t) {
-					e.error(t);
+					const { value, done } = await iter.next();
+					if (done) return ctrl.close();
+					const bytes = encodeUTF8(JSON.stringify(value) + "\n");
+					ctrl.enqueue(bytes);
+				} catch (err) {
+					ctrl.error(err);
 				}
 			},
 			async cancel() {
-				await t.return?.();
+				await iter.return?.();
 			}
 		});
 	}
 };
-async function* bt(e, t) {
-	if (!e.body) throw t.abort(), globalThis.navigator !== void 0 && globalThis.navigator.product === "ReactNative" ? new b("The default react-native fetch implementation does not support streaming. Please use expo/fetch: https://docs.expo.dev/versions/latest/sdk/expo/#expofetch-api") : new b("Attempted to iterate over a response with no body");
-	let n = new St(), r = new ct(), i = Le(e.body);
-	for await (let e of xt(i)) for (let t of r.decode(e)) {
-		let e = n.decode(t);
-		e && (yield e);
+async function* _iterSSEMessages(response, controller) {
+	if (!response.body) {
+		controller.abort();
+		if (typeof globalThis.navigator !== "undefined" && globalThis.navigator.product === "ReactNative") throw new OpenAIError(`The default react-native fetch implementation does not support streaming. Please use expo/fetch: https://docs.expo.dev/versions/latest/sdk/expo/#expofetch-api`);
+		throw new OpenAIError(`Attempted to iterate over a response with no body`);
 	}
-	for (let e of r.flush()) {
-		let t = n.decode(e);
-		t && (yield t);
+	const sseDecoder = new SSEDecoder();
+	const lineDecoder = new LineDecoder();
+	const iter = ReadableStreamToAsyncIterable(response.body);
+	for await (const sseChunk of iterSSEChunks(iter)) for (const line of lineDecoder.decode(sseChunk)) {
+		const sse = sseDecoder.decode(line);
+		if (sse) yield sse;
+	}
+	for (const line of lineDecoder.flush()) {
+		const sse = sseDecoder.decode(line);
+		if (sse) yield sse;
 	}
 }
-async function* xt(e) {
-	let t = new Uint8Array();
-	for await (let n of e) {
-		if (n == null) continue;
-		let e = n instanceof ArrayBuffer ? new Uint8Array(n) : typeof n == "string" ? at(n) : n, r = new Uint8Array(t.length + e.length);
-		r.set(t), r.set(e, t.length), t = r;
-		let i;
-		for (; (i = ut(t)) !== -1;) yield t.slice(0, i), t = t.slice(i);
+/**
+* Given an async iterable iterator, iterates over it and yields full
+* SSE chunks, i.e. yields when a double new-line is encountered.
+*/
+async function* iterSSEChunks(iterator) {
+	let data = new Uint8Array();
+	for await (const chunk of iterator) {
+		if (chunk == null) continue;
+		const binaryChunk = chunk instanceof ArrayBuffer ? new Uint8Array(chunk) : typeof chunk === "string" ? encodeUTF8(chunk) : chunk;
+		let newData = new Uint8Array(data.length + binaryChunk.length);
+		newData.set(data);
+		newData.set(binaryChunk, data.length);
+		data = newData;
+		let patternIndex;
+		while ((patternIndex = findDoubleNewlineIndex(data)) !== -1) {
+			yield data.slice(0, patternIndex);
+			data = data.slice(patternIndex);
+		}
 	}
-	t.length > 0 && (yield t);
+	if (data.length > 0) yield data;
 }
-var St = class {
+var SSEDecoder = class {
 	constructor() {
-		this.event = null, this.data = [], this.chunks = [];
+		this.event = null;
+		this.data = [];
+		this.chunks = [];
 	}
-	decode(e) {
-		if (e.endsWith("\r") && (e = e.substring(0, e.length - 1)), !e) {
+	decode(line) {
+		if (line.endsWith("\r")) line = line.substring(0, line.length - 1);
+		if (!line) {
 			if (!this.event && !this.data.length) return null;
-			let e = {
+			const sse = {
 				event: this.event,
 				data: this.data.join("\n"),
 				raw: this.chunks
 			};
-			return this.event = null, this.data = [], this.chunks = [], e;
+			this.event = null;
+			this.data = [];
+			this.chunks = [];
+			return sse;
 		}
-		if (this.chunks.push(e), e.startsWith(":")) return null;
-		let [t, n, r] = Ct(e, ":");
-		return r.startsWith(" ") && (r = r.substring(1)), t === "event" ? this.event = r : t === "data" && this.data.push(r), null;
+		this.chunks.push(line);
+		if (line.startsWith(":")) return null;
+		let [fieldname, _, value] = partition(line, ":");
+		if (value.startsWith(" ")) value = value.substring(1);
+		if (fieldname === "event") this.event = value;
+		else if (fieldname === "data") this.data.push(value);
+		return null;
 	}
 };
-function Ct(e, t) {
-	let n = e.indexOf(t);
-	return n === -1 ? [
-		e,
+function partition(str, delimiter) {
+	const index = str.indexOf(delimiter);
+	if (index !== -1) return [
+		str.substring(0, index),
+		delimiter,
+		str.substring(index + delimiter.length)
+	];
+	return [
+		str,
 		"",
 		""
-	] : [
-		e.substring(0, n),
-		t,
-		e.substring(n + t.length)
 	];
 }
 //#endregion
 //#region node_modules/openai/internal/parse.mjs
-async function wt(e, t) {
-	let { response: n, requestLogID: r, retryOfRequestLogID: i, startTime: a } = t, o = await (async () => {
-		if (t.options.stream) return k(e).debug("response", n.status, n.url, n.headers, n.body), t.options.__streamClass ? t.options.__streamClass.fromSSEResponse(n, t.controller, e, t.options.__synthesizeEventData) : yt.fromSSEResponse(n, t.controller, e, t.options.__synthesizeEventData);
-		if (n.status === 204) return null;
-		if (t.options.__binaryResponse) return n;
-		let r = n.headers.get("content-type")?.split(";")[0]?.trim();
-		return r?.includes("application/json") || r?.endsWith("+json") ? n.headers.get("content-length") === "0" ? void 0 : Tt(await n.json(), n) : await n.text();
+async function defaultParseResponse(client, props) {
+	const { response, requestLogID, retryOfRequestLogID, startTime } = props;
+	const body = await (async () => {
+		if (props.options.stream) {
+			loggerFor(client).debug("response", response.status, response.url, response.headers, response.body);
+			if (props.options.__streamClass) return props.options.__streamClass.fromSSEResponse(response, props.controller, client, props.options.__synthesizeEventData);
+			return Stream.fromSSEResponse(response, props.controller, client, props.options.__synthesizeEventData);
+		}
+		if (response.status === 204) return null;
+		if (props.options.__binaryResponse) return response;
+		const mediaType = response.headers.get("content-type")?.split(";")[0]?.trim();
+		if (mediaType?.includes("application/json") || mediaType?.endsWith("+json")) {
+			if (response.headers.get("content-length") === "0") return;
+			return addRequestID(await response.json(), response);
+		}
+		return await response.text();
 	})();
-	return k(e).debug(`[${r}] response parsed`, _t({
-		retryOfRequestLogID: i,
-		url: n.url,
-		status: n.status,
-		body: o,
-		durationMs: Date.now() - a
-	})), o;
+	loggerFor(client).debug(`[${requestLogID}] response parsed`, formatRequestDetails({
+		retryOfRequestLogID,
+		url: response.url,
+		status: response.status,
+		body,
+		durationMs: Date.now() - startTime
+	}));
+	return body;
 }
-function Tt(e, t) {
-	return !e || typeof e != "object" || Array.isArray(e) ? e : Object.defineProperty(e, "_request_id", {
-		value: t.headers.get("x-request-id"),
-		enumerable: !1
+function addRequestID(value, response) {
+	if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+	return Object.defineProperty(value, "_request_id", {
+		value: response.headers.get("x-request-id"),
+		enumerable: false
 	});
 }
 //#endregion
 //#region node_modules/openai/core/api-promise.mjs
-var Et, Dt = class e extends Promise {
-	constructor(e, t, n = wt) {
-		super((e) => {
-			e(null);
-		}), this.responsePromise = t, this.parseResponse = n, Et.set(this, void 0), g(this, Et, e, "f");
+var _APIPromise_client;
+/**
+* A subclass of `Promise` providing additional helper methods
+* for interacting with the SDK.
+*/
+var APIPromise = class APIPromise extends Promise {
+	constructor(client, responsePromise, parseResponse = defaultParseResponse) {
+		super((resolve) => {
+			resolve(null);
+		});
+		this.responsePromise = responsePromise;
+		this.parseResponse = parseResponse;
+		_APIPromise_client.set(this, void 0);
+		__classPrivateFieldSet(this, _APIPromise_client, client, "f");
 	}
-	_thenUnwrap(t) {
-		return new e(_(this, Et, "f"), this.responsePromise, async (e, n) => Tt(t(await this.parseResponse(e, n), n), n.response));
+	_thenUnwrap(transform) {
+		return new APIPromise(__classPrivateFieldGet(this, _APIPromise_client, "f"), this.responsePromise, async (client, props) => addRequestID(transform(await this.parseResponse(client, props), props), props.response));
 	}
+	/**
+	* Gets the raw `Response` instance instead of parsing the response
+	* data.
+	*
+	* If you want to parse the response body but still get the `Response`
+	* instance, you can use {@link withResponse()}.
+	*
+	* 👋 Getting the wrong TypeScript type for `Response`?
+	* Try setting `"moduleResolution": "NodeNext"` or add `"lib": ["DOM"]`
+	* to your `tsconfig.json`.
+	*/
 	asResponse() {
-		return this.responsePromise.then((e) => e.response);
+		return this.responsePromise.then((p) => p.response);
 	}
+	/**
+	* Gets the parsed response data, the raw `Response` instance and the ID of the request,
+	* returned via the X-Request-ID header which is useful for debugging requests and reporting
+	* issues to OpenAI.
+	*
+	* If you just want to get the raw `Response` instance without parsing it,
+	* you can use {@link asResponse()}.
+	*
+	* 👋 Getting the wrong TypeScript type for `Response`?
+	* Try setting `"moduleResolution": "NodeNext"` or add `"lib": ["DOM"]`
+	* to your `tsconfig.json`.
+	*/
 	async withResponse() {
-		let [e, t] = await Promise.all([this.parse(), this.asResponse()]);
+		const [data, response] = await Promise.all([this.parse(), this.asResponse()]);
 		return {
-			data: e,
-			response: t,
-			request_id: t.headers.get("x-request-id")
+			data,
+			response,
+			request_id: response.headers.get("x-request-id")
 		};
 	}
 	parse() {
-		return this.parsedPromise ||= this.responsePromise.then((e) => this.parseResponse(_(this, Et, "f"), e)), this.parsedPromise;
+		if (!this.parsedPromise) this.parsedPromise = this.responsePromise.then((data) => this.parseResponse(__classPrivateFieldGet(this, _APIPromise_client, "f"), data));
+		return this.parsedPromise;
 	}
-	then(e, t) {
-		return this.parse().then(e, t);
+	then(onfulfilled, onrejected) {
+		return this.parse().then(onfulfilled, onrejected);
 	}
-	catch(e) {
-		return this.parse().catch(e);
+	catch(onrejected) {
+		return this.parse().catch(onrejected);
 	}
-	finally(e) {
-		return this.parse().finally(e);
+	finally(onfinally) {
+		return this.parse().finally(onfinally);
 	}
 };
-Et = /* @__PURE__ */ new WeakMap();
+_APIPromise_client = /* @__PURE__ */ new WeakMap();
 //#endregion
 //#region node_modules/openai/core/pagination.mjs
-var Ot, kt = class {
-	constructor(e, t, n, r) {
-		Ot.set(this, void 0), g(this, Ot, e, "f"), this.options = r, this.response = t, this.body = n;
+var _AbstractPage_client;
+var AbstractPage = class {
+	constructor(client, response, body, options) {
+		_AbstractPage_client.set(this, void 0);
+		__classPrivateFieldSet(this, _AbstractPage_client, client, "f");
+		this.options = options;
+		this.response = response;
+		this.body = body;
 	}
 	hasNextPage() {
-		return this.getPaginatedItems().length ? this.nextPageRequestOptions() != null : !1;
+		if (!this.getPaginatedItems().length) return false;
+		return this.nextPageRequestOptions() != null;
 	}
 	async getNextPage() {
-		let e = this.nextPageRequestOptions();
-		if (!e) throw new b("No next page expected; please check `.hasNextPage()` before calling `.getNextPage()`.");
-		return await _(this, Ot, "f").requestAPIList(this.constructor, e);
+		const nextOptions = this.nextPageRequestOptions();
+		if (!nextOptions) throw new OpenAIError("No next page expected; please check `.hasNextPage()` before calling `.getNextPage()`.");
+		return await __classPrivateFieldGet(this, _AbstractPage_client, "f").requestAPIList(this.constructor, nextOptions);
 	}
 	async *iterPages() {
-		let e = this;
-		for (yield e; e.hasNextPage();) e = await e.getNextPage(), yield e;
+		let page = this;
+		yield page;
+		while (page.hasNextPage()) {
+			page = await page.getNextPage();
+			yield page;
+		}
 	}
-	async *[(Ot = /* @__PURE__ */ new WeakMap(), Symbol.asyncIterator)]() {
-		for await (let e of this.iterPages()) for (let t of e.getPaginatedItems()) yield t;
+	async *[(_AbstractPage_client = /* @__PURE__ */ new WeakMap(), Symbol.asyncIterator)]() {
+		for await (const page of this.iterPages()) for (const item of page.getPaginatedItems()) yield item;
 	}
-}, At = class extends Dt {
-	constructor(e, t, n) {
-		super(e, t, async (e, t) => new n(e, t.response, await wt(e, t), t.options));
+};
+/**
+* This subclass of Promise will resolve to an instantiated Page once the request completes.
+*
+* It also implements AsyncIterable to allow auto-paginating iteration on an unawaited list call, eg:
+*
+*    for await (const item of client.items.list()) {
+*      console.log(item)
+*    }
+*/
+var PagePromise = class extends APIPromise {
+	constructor(client, request, Page) {
+		super(client, request, async (client, props) => new Page(client, props.response, await defaultParseResponse(client, props), props.options));
 	}
+	/**
+	* Allow auto-paginating iteration on an unawaited list call, eg:
+	*
+	*    for await (const item of client.items.list()) {
+	*      console.log(item)
+	*    }
+	*/
 	async *[Symbol.asyncIterator]() {
-		let e = await this;
-		for await (let t of e) yield t;
+		const page = await this;
+		for await (const item of page) yield item;
 	}
-}, jt = class extends kt {
-	constructor(e, t, n, r) {
-		super(e, t, n, r), this.data = n.data || [], this.object = n.object;
+};
+/**
+* Note: no pagination actually occurs yet, this is for forwards-compatibility.
+*/
+var Page = class extends AbstractPage {
+	constructor(client, response, body, options) {
+		super(client, response, body, options);
+		this.data = body.data || [];
+		this.object = body.object;
 	}
 	getPaginatedItems() {
 		return this.data ?? [];
@@ -839,72 +1213,99 @@ var Ot, kt = class {
 	nextPageRequestOptions() {
 		return null;
 	}
-}, A = class extends kt {
-	constructor(e, t, n, r) {
-		super(e, t, n, r), this.data = n.data || [], this.has_more = n.has_more || !1;
+};
+var CursorPage = class extends AbstractPage {
+	constructor(client, response, body, options) {
+		super(client, response, body, options);
+		this.data = body.data || [];
+		this.has_more = body.has_more || false;
 	}
 	getPaginatedItems() {
 		return this.data ?? [];
 	}
 	hasNextPage() {
-		return this.has_more === !1 ? !1 : super.hasNextPage();
+		if (this.has_more === false) return false;
+		return super.hasNextPage();
 	}
 	nextPageRequestOptions() {
-		let e = this.getPaginatedItems(), t = e[e.length - 1]?.id;
-		return t ? {
+		const data = this.getPaginatedItems();
+		const id = data[data.length - 1]?.id;
+		if (!id) return null;
+		return {
 			...this.options,
 			query: {
-				...ve(this.options.query),
-				after: t
+				...maybeObj(this.options.query),
+				after: id
 			}
-		} : null;
+		};
 	}
-}, j = class extends kt {
-	constructor(e, t, n, r) {
-		super(e, t, n, r), this.data = n.data || [], this.has_more = n.has_more || !1, this.last_id = n.last_id || "";
+};
+var ConversationCursorPage = class extends AbstractPage {
+	constructor(client, response, body, options) {
+		super(client, response, body, options);
+		this.data = body.data || [];
+		this.has_more = body.has_more || false;
+		this.last_id = body.last_id || "";
 	}
 	getPaginatedItems() {
 		return this.data ?? [];
 	}
 	hasNextPage() {
-		return this.has_more === !1 ? !1 : super.hasNextPage();
+		if (this.has_more === false) return false;
+		return super.hasNextPage();
 	}
 	nextPageRequestOptions() {
-		let e = this.last_id;
-		return e ? {
+		const cursor = this.last_id;
+		if (!cursor) return null;
+		return {
 			...this.options,
 			query: {
-				...ve(this.options.query),
-				after: e
+				...maybeObj(this.options.query),
+				after: cursor
 			}
-		} : null;
+		};
 	}
-}, M = class extends kt {
-	constructor(e, t, n, r) {
-		super(e, t, n, r), this.data = n.data || [], this.has_more = n.has_more || !1, this.next = n.next || null;
+};
+var NextCursorPage = class extends AbstractPage {
+	constructor(client, response, body, options) {
+		super(client, response, body, options);
+		this.data = body.data || [];
+		this.has_more = body.has_more || false;
+		this.next = body.next || null;
 	}
 	getPaginatedItems() {
 		return this.data ?? [];
 	}
 	hasNextPage() {
-		return this.has_more === !1 ? !1 : super.hasNextPage();
+		if (this.has_more === false) return false;
+		return super.hasNextPage();
 	}
 	nextPageRequestOptions() {
-		let e = this.next;
-		return e ? {
+		const cursor = this.next;
+		if (!cursor) return null;
+		return {
 			...this.options,
 			query: {
-				...ve(this.options.query),
-				after: e
+				...maybeObj(this.options.query),
+				after: cursor
 			}
-		} : null;
+		};
 	}
-}, Mt = {
+};
+//#endregion
+//#region node_modules/openai/auth/workload-identity-auth.mjs
+var SUBJECT_TOKEN_TYPES = {
 	jwt: "urn:ietf:params:oauth:token-type:jwt",
 	id: "urn:ietf:params:oauth:token-type:id_token"
-}, Nt = "urn:ietf:params:oauth:grant-type:token-exchange", Pt = class {
-	constructor(e, t) {
-		this.cachedToken = null, this.refreshPromise = null, this.tokenExchangeUrl = "https://auth.openai.com/oauth/token", this.config = e, this.fetch = t ?? Pe();
+};
+var TOKEN_EXCHANGE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange";
+var WorkloadIdentityAuth = class {
+	constructor(config, fetch) {
+		this.cachedToken = null;
+		this.refreshPromise = null;
+		this.tokenExchangeUrl = "https://auth.openai.com/oauth/token";
+		this.config = config;
+		this.fetch = fetch ?? getDefaultFetch();
 	}
 	async getToken() {
 		if (!this.cachedToken || this.isTokenExpired(this.cachedToken)) {
@@ -916,536 +1317,807 @@ var Ot, kt = class {
 				this.refreshPromise = null;
 			}
 		}
-		return this.needsRefresh(this.cachedToken) && !this.refreshPromise && (this.refreshPromise = this.refreshToken().finally(() => {
+		if (this.needsRefresh(this.cachedToken) && !this.refreshPromise) this.refreshPromise = this.refreshToken().finally(() => {
 			this.refreshPromise = null;
-		})), this.cachedToken.token;
+		});
+		return this.cachedToken.token;
 	}
 	async refreshToken() {
-		let e = {
-			grant_type: Nt,
+		const body = {
+			grant_type: TOKEN_EXCHANGE_GRANT_TYPE,
 			subject_token: await this.config.provider.getToken(),
-			subject_token_type: Mt[this.config.provider.tokenType],
+			subject_token_type: SUBJECT_TOKEN_TYPES[this.config.provider.tokenType],
 			identity_provider_id: this.config.identityProviderId,
 			service_account_id: this.config.serviceAccountId
 		};
-		this.config.clientId && (e.client_id = this.config.clientId);
-		let t = await this.fetch(this.tokenExchangeUrl, {
+		if (this.config.clientId) body["client_id"] = this.config.clientId;
+		const response = await this.fetch(this.tokenExchangeUrl, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(e)
+			body: JSON.stringify(body)
 		});
-		if (!t.ok) {
-			let e = await t.text(), n;
+		if (!response.ok) {
+			const errorText = await response.text();
+			let body = void 0;
 			try {
-				n = JSON.parse(e);
+				body = JSON.parse(errorText);
 			} catch {}
-			throw t.status === 400 || t.status === 401 || t.status === 403 ? new pe(t.status, n, t.headers) : x.generate(t.status, n, `Token exchange failed with status ${t.status}`, t.headers);
+			if (response.status === 400 || response.status === 401 || response.status === 403) throw new OAuthError(response.status, body, response.headers);
+			throw APIError.generate(response.status, body, `Token exchange failed with status ${response.status}`, response.headers);
 		}
-		let n = await t.json(), r = n.expires_in || 3600, i = Date.now() + r * 1e3;
-		return this.cachedToken = {
-			token: n.access_token,
-			expiresAt: i
-		}, n.access_token;
+		const tokenResponse = await response.json();
+		const expiresIn = tokenResponse.expires_in || 3600;
+		const expiresAt = Date.now() + expiresIn * 1e3;
+		this.cachedToken = {
+			token: tokenResponse.access_token,
+			expiresAt
+		};
+		return tokenResponse.access_token;
 	}
-	isTokenExpired(e) {
-		return Date.now() >= e.expiresAt;
+	isTokenExpired(cachedToken) {
+		return Date.now() >= cachedToken.expiresAt;
 	}
-	needsRefresh(e) {
-		let t = (this.config.refreshBufferSeconds ?? 1200) * 1e3;
-		return Date.now() >= e.expiresAt - t;
+	needsRefresh(cachedToken) {
+		const bufferMs = (this.config.refreshBufferSeconds ?? 1200) * 1e3;
+		return Date.now() >= cachedToken.expiresAt - bufferMs;
 	}
 	invalidateToken() {
-		this.cachedToken = null, this.refreshPromise = null;
-	}
-}, Ft = () => {
-	if (typeof File > "u") {
-		let { process: e } = globalThis, t = typeof e?.versions?.node == "string" && parseInt(e.versions.node.split(".")) < 20;
-		throw Error("`File` is not defined as a global, which is required for file uploads." + (t ? " Update to Node 20 LTS or newer, or set `globalThis.File` to `import('node:buffer').File`." : ""));
+		this.cachedToken = null;
+		this.refreshPromise = null;
 	}
 };
-function It(e, t, n) {
-	return Ft(), new File(e, t ?? "unknown_file", n);
+//#endregion
+//#region node_modules/openai/internal/uploads.mjs
+var checkFileSupport = () => {
+	if (typeof File === "undefined") {
+		const { process } = globalThis;
+		const isOldNode = typeof process?.versions?.node === "string" && parseInt(process.versions.node.split(".")) < 20;
+		throw new Error("`File` is not defined as a global, which is required for file uploads." + (isOldNode ? " Update to Node 20 LTS or newer, or set `globalThis.File` to `import('node:buffer').File`." : ""));
+	}
+};
+/**
+* Construct a `File` instance. This is used to ensure a helpful error is thrown
+* for environments that don't define a global `File` yet.
+*/
+function makeFile(fileBits, fileName, options) {
+	checkFileSupport();
+	return new File(fileBits, fileName ?? "unknown_file", options);
 }
-function Lt(e) {
-	return (typeof e == "object" && !!e && ("name" in e && e.name && String(e.name) || "url" in e && e.url && String(e.url) || "filename" in e && e.filename && String(e.filename) || "path" in e && e.path && String(e.path)) || "").split(/[\\/]/).pop() || void 0;
+function getName(value) {
+	return (typeof value === "object" && value !== null && ("name" in value && value.name && String(value.name) || "url" in value && value.url && String(value.url) || "filename" in value && value.filename && String(value.filename) || "path" in value && value.path && String(value.path)) || "").split(/[\\/]/).pop() || void 0;
 }
-var Rt = (e) => typeof e == "object" && !!e && typeof e[Symbol.asyncIterator] == "function", zt = async (e, t) => Gt(e.body) ? {
-	...e,
-	body: await Ht(e.body, t)
-} : e, N = async (e, t) => ({
-	...e,
-	body: await Ht(e.body, t)
-}), Bt = /* @__PURE__ */ new WeakMap();
-function Vt(e) {
-	let t = typeof e == "function" ? e : e.fetch, n = Bt.get(t);
-	if (n) return n;
-	let r = (async () => {
+var isAsyncIterable = (value) => value != null && typeof value === "object" && typeof value[Symbol.asyncIterator] === "function";
+/**
+* Returns a multipart/form-data request if any part of the given request body contains a File / Blob value.
+* Otherwise returns the request as is.
+*/
+var maybeMultipartFormRequestOptions = async (opts, fetch) => {
+	if (!hasUploadableValue(opts.body)) return opts;
+	return {
+		...opts,
+		body: await createForm(opts.body, fetch)
+	};
+};
+var multipartFormRequestOptions = async (opts, fetch) => {
+	return {
+		...opts,
+		body: await createForm(opts.body, fetch)
+	};
+};
+var supportsFormDataMap = /* @__PURE__ */ new WeakMap();
+/**
+* node-fetch doesn't support the global FormData object in recent node versions. Instead of sending
+* properly-encoded form data, it just stringifies the object, resulting in a request body of "[object FormData]".
+* This function detects if the fetch function provided supports the global FormData object to avoid
+* confusing error messages later on.
+*/
+function supportsFormData(fetchObject) {
+	const fetch = typeof fetchObject === "function" ? fetchObject : fetchObject.fetch;
+	const cached = supportsFormDataMap.get(fetch);
+	if (cached) return cached;
+	const promise = (async () => {
 		try {
-			let e = "Response" in t ? t.Response : (await t("data:,")).constructor, n = new FormData();
-			return n.toString() !== await new e(n).text();
+			const FetchResponse = "Response" in fetch ? fetch.Response : (await fetch("data:,")).constructor;
+			const data = new FormData();
+			if (data.toString() === await new FetchResponse(data).text()) return false;
+			return true;
 		} catch {
-			return !0;
+			return true;
 		}
 	})();
-	return Bt.set(t, r), r;
+	supportsFormDataMap.set(fetch, promise);
+	return promise;
 }
-var Ht = async (e, t) => {
-	if (!await Vt(t)) throw TypeError("The provided fetch function does not support file uploads with the current global FormData class.");
-	let n = new FormData();
-	return await Promise.all(Object.entries(e || {}).map(([e, t]) => Kt(n, e, t))), n;
-}, Ut = (e) => e instanceof Blob && "name" in e, Wt = (e) => typeof e == "object" && !!e && (e instanceof Response || Rt(e) || Ut(e)), Gt = (e) => {
-	if (Wt(e)) return !0;
-	if (Array.isArray(e)) return e.some(Gt);
-	if (e && typeof e == "object") {
-		for (let t in e) if (Gt(e[t])) return !0;
+var createForm = async (body, fetch) => {
+	if (!await supportsFormData(fetch)) throw new TypeError("The provided fetch function does not support file uploads with the current global FormData class.");
+	const form = new FormData();
+	await Promise.all(Object.entries(body || {}).map(([key, value]) => addFormValue(form, key, value)));
+	return form;
+};
+var isNamedBlob = (value) => value instanceof Blob && "name" in value;
+var isUploadable = (value) => typeof value === "object" && value !== null && (value instanceof Response || isAsyncIterable(value) || isNamedBlob(value));
+var hasUploadableValue = (value) => {
+	if (isUploadable(value)) return true;
+	if (Array.isArray(value)) return value.some(hasUploadableValue);
+	if (value && typeof value === "object") {
+		for (const k in value) if (hasUploadableValue(value[k])) return true;
 	}
-	return !1;
-}, Kt = async (e, t, n) => {
-	if (n !== void 0) {
-		if (n == null) throw TypeError(`Received null for "${t}"; to pass null in FormData, you must use the string 'null'`);
-		if (typeof n == "string" || typeof n == "number" || typeof n == "boolean") e.append(t, String(n));
-		else if (n instanceof Response) e.append(t, It([await n.blob()], Lt(n)));
-		else if (Rt(n)) e.append(t, It([await new Response(Ie(n)).blob()], Lt(n)));
-		else if (Ut(n)) e.append(t, n, Lt(n));
-		else if (Array.isArray(n)) await Promise.all(n.map((n) => Kt(e, t + "[]", n)));
-		else if (typeof n == "object") await Promise.all(Object.entries(n).map(([n, r]) => Kt(e, `${t}[${n}]`, r)));
-		else throw TypeError(`Invalid value given to form, expected a string, number, boolean, object, Array, File or Blob but got ${n} instead`);
+	return false;
+};
+var addFormValue = async (form, key, value) => {
+	if (value === void 0) return;
+	if (value == null) throw new TypeError(`Received null for "${key}"; to pass null in FormData, you must use the string 'null'`);
+	if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") form.append(key, String(value));
+	else if (value instanceof Response) form.append(key, makeFile([await value.blob()], getName(value)));
+	else if (isAsyncIterable(value)) form.append(key, makeFile([await new Response(ReadableStreamFrom(value)).blob()], getName(value)));
+	else if (isNamedBlob(value)) form.append(key, value, getName(value));
+	else if (Array.isArray(value)) await Promise.all(value.map((entry) => addFormValue(form, key + "[]", entry)));
+	else if (typeof value === "object") await Promise.all(Object.entries(value).map(([name, prop]) => addFormValue(form, `${key}[${name}]`, prop)));
+	else throw new TypeError(`Invalid value given to form, expected a string, number, boolean, object, Array, File or Blob but got ${value} instead`);
+};
+//#endregion
+//#region node_modules/openai/internal/to-file.mjs
+/**
+* This check adds the arrayBuffer() method type because it is available and used at runtime
+*/
+var isBlobLike = (value) => value != null && typeof value === "object" && typeof value.size === "number" && typeof value.type === "string" && typeof value.text === "function" && typeof value.slice === "function" && typeof value.arrayBuffer === "function";
+/**
+* This check adds the arrayBuffer() method type because it is available and used at runtime
+*/
+var isFileLike = (value) => value != null && typeof value === "object" && typeof value.name === "string" && typeof value.lastModified === "number" && isBlobLike(value);
+var isResponseLike = (value) => value != null && typeof value === "object" && typeof value.url === "string" && typeof value.blob === "function";
+/**
+* Helper for creating a {@link File} to pass to an SDK upload method from a variety of different data formats
+* @param value the raw content of the file. Can be an {@link Uploadable}, BlobLikePart, or AsyncIterable of BlobLikeParts
+* @param {string=} name the name of the file. If omitted, toFile will try to determine a file name from bits if possible
+* @param {Object=} options additional properties
+* @param {string=} options.type the MIME type of the content
+* @param {number=} options.lastModified the last modified timestamp
+* @returns a {@link File} with the given properties
+*/
+async function toFile(value, name, options) {
+	checkFileSupport();
+	value = await value;
+	if (isFileLike(value)) {
+		if (value instanceof File) return value;
+		return makeFile([await value.arrayBuffer()], value.name);
 	}
-}, qt = (e) => typeof e == "object" && !!e && typeof e.size == "number" && typeof e.type == "string" && typeof e.text == "function" && typeof e.slice == "function" && typeof e.arrayBuffer == "function", Jt = (e) => typeof e == "object" && !!e && typeof e.name == "string" && typeof e.lastModified == "number" && qt(e), Yt = (e) => typeof e == "object" && !!e && typeof e.url == "string" && typeof e.blob == "function";
-async function Xt(e, t, n) {
-	if (Ft(), e = await e, Jt(e)) return e instanceof File ? e : It([await e.arrayBuffer()], e.name);
-	if (Yt(e)) {
-		let r = await e.blob();
-		return t ||= new URL(e.url).pathname.split(/[\\/]/).pop(), It(await Zt(r), t, n);
+	if (isResponseLike(value)) {
+		const blob = await value.blob();
+		name || (name = new URL(value.url).pathname.split(/[\\/]/).pop());
+		return makeFile(await getBytes(blob), name, options);
 	}
-	let r = await Zt(e);
-	if (t ||= Lt(e), !n?.type) {
-		let e = r.find((e) => typeof e == "object" && "type" in e && e.type);
-		typeof e == "string" && (n = {
-			...n,
-			type: e
-		});
+	const parts = await getBytes(value);
+	name || (name = getName(value));
+	if (!options?.type) {
+		const type = parts.find((part) => typeof part === "object" && "type" in part && part.type);
+		if (typeof type === "string") options = {
+			...options,
+			type
+		};
 	}
-	return It(r, t, n);
+	return makeFile(parts, name, options);
 }
-async function Zt(e) {
-	let t = [];
-	if (typeof e == "string" || ArrayBuffer.isView(e) || e instanceof ArrayBuffer) t.push(e);
-	else if (qt(e)) t.push(e instanceof Blob ? e : await e.arrayBuffer());
-	else if (Rt(e)) for await (let n of e) t.push(...await Zt(n));
+async function getBytes(value) {
+	let parts = [];
+	if (typeof value === "string" || ArrayBuffer.isView(value) || value instanceof ArrayBuffer) parts.push(value);
+	else if (isBlobLike(value)) parts.push(value instanceof Blob ? value : await value.arrayBuffer());
+	else if (isAsyncIterable(value)) for await (const chunk of value) parts.push(...await getBytes(chunk));
 	else {
-		let t = e?.constructor?.name;
-		throw Error(`Unexpected data type: ${typeof e}${t ? `; constructor: ${t}` : ""}${Qt(e)}`);
+		const constructor = value?.constructor?.name;
+		throw new Error(`Unexpected data type: ${typeof value}${constructor ? `; constructor: ${constructor}` : ""}${propsForError(value)}`);
 	}
-	return t;
+	return parts;
 }
-function Qt(e) {
-	return typeof e != "object" || !e ? "" : `; props: [${Object.getOwnPropertyNames(e).map((e) => `"${e}"`).join(", ")}]`;
+function propsForError(value) {
+	if (typeof value !== "object" || value === null) return "";
+	return `; props: [${Object.getOwnPropertyNames(value).map((p) => `"${p}"`).join(", ")}]`;
 }
 //#endregion
 //#region node_modules/openai/core/resource.mjs
-var P = class {
-	constructor(e) {
-		this._client = e;
+var APIResource = class {
+	constructor(client) {
+		this._client = client;
 	}
 };
 //#endregion
 //#region node_modules/openai/internal/utils/path.mjs
-function $t(e) {
-	return e.replace(/[^A-Za-z0-9\-._~!$&'()*+,;=:@]+/g, encodeURIComponent);
+/**
+* Percent-encode everything that isn't safe to have in a path without encoding safe chars.
+*
+* Taken from https://datatracker.ietf.org/doc/html/rfc3986#section-3.3:
+* > unreserved  = ALPHA / DIGIT / "-" / "." / "_" / "~"
+* > sub-delims  = "!" / "$" / "&" / "'" / "(" / ")" / "*" / "+" / "," / ";" / "="
+* > pchar       = unreserved / pct-encoded / sub-delims / ":" / "@"
+*/
+function encodeURIPath(str) {
+	return str.replace(/[^A-Za-z0-9\-._~!$&'()*+,;=:@]+/g, encodeURIComponent);
 }
-var en = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.create(null)), F = /* @__PURE__ */ ((e = $t) => function(t, ...n) {
-	if (t.length === 1) return t[0];
-	let r = !1, i = [], a = t.reduce((t, a, o) => {
-		/[?#]/.test(a) && (r = !0);
-		let s = n[o], c = (r ? encodeURIComponent : e)("" + s);
-		return o !== n.length && (s == null || typeof s == "object" && s.toString === Object.getPrototypeOf(Object.getPrototypeOf(s.hasOwnProperty ?? en) ?? en)?.toString) && (c = s + "", i.push({
-			start: t.length + a.length,
-			length: c.length,
-			error: `Value of type ${Object.prototype.toString.call(s).slice(8, -1)} is not a valid path parameter`
-		})), t + a + (o === n.length ? "" : c);
-	}, ""), o = a.split(/[?#]/, 1)[0], s = /(?<=^|\/)(?:\.|%2e){1,2}(?=\/|$)/gi, c;
-	for (; (c = s.exec(o)) !== null;) i.push({
-		start: c.index,
-		length: c[0].length,
-		error: `Value "${c[0]}" can\'t be safely passed as a path parameter`
+var EMPTY = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.create(null));
+var createPathTagFunction = (pathEncoder = encodeURIPath) => function path(statics, ...params) {
+	if (statics.length === 1) return statics[0];
+	let postPath = false;
+	const invalidSegments = [];
+	const path = statics.reduce((previousValue, currentValue, index) => {
+		if (/[?#]/.test(currentValue)) postPath = true;
+		const value = params[index];
+		let encoded = (postPath ? encodeURIComponent : pathEncoder)("" + value);
+		if (index !== params.length && (value == null || typeof value === "object" && value.toString === Object.getPrototypeOf(Object.getPrototypeOf(value.hasOwnProperty ?? EMPTY) ?? EMPTY)?.toString)) {
+			encoded = value + "";
+			invalidSegments.push({
+				start: previousValue.length + currentValue.length,
+				length: encoded.length,
+				error: `Value of type ${Object.prototype.toString.call(value).slice(8, -1)} is not a valid path parameter`
+			});
+		}
+		return previousValue + currentValue + (index === params.length ? "" : encoded);
+	}, "");
+	const pathOnly = path.split(/[?#]/, 1)[0];
+	const invalidSegmentPattern = /(?<=^|\/)(?:\.|%2e){1,2}(?=\/|$)/gi;
+	let match;
+	while ((match = invalidSegmentPattern.exec(pathOnly)) !== null) invalidSegments.push({
+		start: match.index,
+		length: match[0].length,
+		error: `Value "${match[0]}" can\'t be safely passed as a path parameter`
 	});
-	if (i.sort((e, t) => e.start - t.start), i.length > 0) {
-		let e = 0, t = i.reduce((t, n) => {
-			let r = " ".repeat(n.start - e), i = "^".repeat(n.length);
-			return e = n.start + n.length, t + r + i;
+	invalidSegments.sort((a, b) => a.start - b.start);
+	if (invalidSegments.length > 0) {
+		let lastEnd = 0;
+		const underline = invalidSegments.reduce((acc, segment) => {
+			const spaces = " ".repeat(segment.start - lastEnd);
+			const arrows = "^".repeat(segment.length);
+			lastEnd = segment.start + segment.length;
+			return acc + spaces + arrows;
 		}, "");
-		throw new b(`Path parameters result in path with invalid segments:\n${i.map((e) => e.error).join("\n")}\n${a}\n${t}`);
+		throw new OpenAIError(`Path parameters result in path with invalid segments:\n${invalidSegments.map((e) => e.error).join("\n")}\n${path}\n${underline}`);
 	}
-	return a;
-})($t), tn = class extends P {
-	list(e, t = {}, n) {
-		return this._client.getAPIList(F`/chat/completions/${e}/messages`, A, {
-			query: t,
-			...n,
-			__security: { bearerAuth: !0 }
+	return path;
+};
+/**
+* URI-encodes path params and ensures no unsafe /./ or /../ path segments are introduced.
+*/
+var path$2 = /* @__PURE__ */ createPathTagFunction(encodeURIPath);
+//#endregion
+//#region node_modules/openai/resources/chat/completions/messages.mjs
+/**
+* Given a list of messages comprising a conversation, the model will return a response.
+*/
+var Messages$1 = class extends APIResource {
+	/**
+	* Get the messages in a stored chat completion. Only Chat Completions that have
+	* been created with the `store` parameter set to `true` will be returned.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const chatCompletionStoreMessage of client.chat.completions.messages.list(
+	*   'completion_id',
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(completionID, query = {}, options) {
+		return this._client.getAPIList(path$2`/chat/completions/${completionID}/messages`, CursorPage, {
+			query,
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
 };
 //#endregion
 //#region node_modules/openai/lib/parser.mjs
-function nn(e) {
-	return e !== void 0 && "function" in e && e.function !== void 0;
+function isChatCompletionFunctionTool(tool) {
+	return tool !== void 0 && "function" in tool && tool.function !== void 0;
 }
-function rn(e) {
-	return e?.$brand === "auto-parseable-response-format";
+function isAutoParsableResponseFormat(response_format) {
+	return response_format?.["$brand"] === "auto-parseable-response-format";
 }
-function an(e) {
-	return e?.$brand === "auto-parseable-tool";
+function isAutoParsableTool$1(tool) {
+	return tool?.["$brand"] === "auto-parseable-tool";
 }
-function on(e, t) {
-	return !t || !dn(t) ? {
-		...e,
-		choices: e.choices.map((e) => (fn(e.message.tool_calls), {
-			...e,
+function maybeParseChatCompletion(completion, params) {
+	if (!params || !hasAutoParseableInput$1(params)) return {
+		...completion,
+		choices: completion.choices.map((choice) => {
+			assertToolCallsAreChatCompletionFunctionToolCalls(choice.message.tool_calls);
+			return {
+				...choice,
+				message: {
+					...choice.message,
+					parsed: null,
+					...choice.message.tool_calls ? { tool_calls: choice.message.tool_calls } : void 0
+				}
+			};
+		})
+	};
+	return parseChatCompletion(completion, params);
+}
+function parseChatCompletion(completion, params) {
+	const choices = completion.choices.map((choice) => {
+		if (choice.finish_reason === "length") throw new LengthFinishReasonError();
+		if (choice.finish_reason === "content_filter") throw new ContentFilterFinishReasonError();
+		assertToolCallsAreChatCompletionFunctionToolCalls(choice.message.tool_calls);
+		return {
+			...choice,
 			message: {
-				...e.message,
-				parsed: null,
-				...e.message.tool_calls ? { tool_calls: e.message.tool_calls } : void 0
-			}
-		}))
-	} : sn(e, t);
-}
-function sn(e, t) {
-	let n = e.choices.map((e) => {
-		if (e.finish_reason === "length") throw new ue();
-		if (e.finish_reason === "content_filter") throw new de();
-		return fn(e.message.tool_calls), {
-			...e,
-			message: {
-				...e.message,
-				...e.message.tool_calls ? { tool_calls: e.message.tool_calls?.map((e) => ln(t, e)) ?? void 0 } : void 0,
-				parsed: e.message.content && !e.message.refusal ? cn(t, e.message.content) : null
+				...choice.message,
+				...choice.message.tool_calls ? { tool_calls: choice.message.tool_calls?.map((toolCall) => parseToolCall$1(params, toolCall)) ?? void 0 } : void 0,
+				parsed: choice.message.content && !choice.message.refusal ? parseResponseFormat(params, choice.message.content) : null
 			}
 		};
 	});
 	return {
-		...e,
-		choices: n
+		...completion,
+		choices
 	};
 }
-function cn(e, t) {
-	return e.response_format?.type === "json_schema" && e.response_format?.type === "json_schema" ? "$parseRaw" in e.response_format ? e.response_format.$parseRaw(t) : JSON.parse(t) : null;
+function parseResponseFormat(params, content) {
+	if (params.response_format?.type !== "json_schema") return null;
+	if (params.response_format?.type === "json_schema") {
+		if ("$parseRaw" in params.response_format) return params.response_format.$parseRaw(content);
+		return JSON.parse(content);
+	}
+	return null;
 }
-function ln(e, t) {
-	let n = e.tools?.find((e) => nn(e) && e.function?.name === t.function.name);
+function parseToolCall$1(params, toolCall) {
+	const inputTool = params.tools?.find((inputTool) => isChatCompletionFunctionTool(inputTool) && inputTool.function?.name === toolCall.function.name);
 	return {
-		...t,
+		...toolCall,
 		function: {
-			...t.function,
-			parsed_arguments: an(n) ? n.$parseRaw(t.function.arguments) : n?.function.strict ? JSON.parse(t.function.arguments) : null
+			...toolCall.function,
+			parsed_arguments: isAutoParsableTool$1(inputTool) ? inputTool.$parseRaw(toolCall.function.arguments) : inputTool?.function.strict ? JSON.parse(toolCall.function.arguments) : null
 		}
 	};
 }
-function un(e, t) {
-	if (!e || !("tools" in e) || !e.tools) return !1;
-	let n = e.tools?.find((e) => nn(e) && e.function?.name === t.function.name);
-	return nn(n) && (an(n) || n?.function.strict || !1);
+function shouldParseToolCall(params, toolCall) {
+	if (!params || !("tools" in params) || !params.tools) return false;
+	const inputTool = params.tools?.find((inputTool) => isChatCompletionFunctionTool(inputTool) && inputTool.function?.name === toolCall.function.name);
+	return isChatCompletionFunctionTool(inputTool) && (isAutoParsableTool$1(inputTool) || inputTool?.function.strict || false);
 }
-function dn(e) {
-	return rn(e.response_format) ? !0 : e.tools?.some((e) => an(e) || e.type === "function" && e.function.strict === !0) ?? !1;
+function hasAutoParseableInput$1(params) {
+	if (isAutoParsableResponseFormat(params.response_format)) return true;
+	return params.tools?.some((t) => isAutoParsableTool$1(t) || t.type === "function" && t.function.strict === true) ?? false;
 }
-function fn(e) {
-	for (let t of e || []) if (t.type !== "function") throw new b(`Currently only \`function\` tool calls are supported; Received \`${t.type}\``);
+function assertToolCallsAreChatCompletionFunctionToolCalls(toolCalls) {
+	for (const toolCall of toolCalls || []) if (toolCall.type !== "function") throw new OpenAIError(`Currently only \`function\` tool calls are supported; Received \`${toolCall.type}\``);
 }
-function pn(e) {
-	for (let t of e ?? []) {
-		if (t.type !== "function") throw new b(`Currently only \`function\` tool types support auto-parsing; Received \`${t.type}\``);
-		if (t.function.strict !== !0) throw new b(`The \`${t.function.name}\` tool is not marked with \`strict: true\`. Only strict function tools can be auto-parsed`);
+function validateInputTools(tools) {
+	for (const tool of tools ?? []) {
+		if (tool.type !== "function") throw new OpenAIError(`Currently only \`function\` tool types support auto-parsing; Received \`${tool.type}\``);
+		if (tool.function.strict !== true) throw new OpenAIError(`The \`${tool.function.name}\` tool is not marked with \`strict: true\`. Only strict function tools can be auto-parsed`);
 	}
 }
 //#endregion
 //#region node_modules/openai/lib/chatCompletionUtils.mjs
-var mn = (e) => e?.role === "assistant", hn = (e) => e?.role === "tool", gn, _n, vn, yn, bn, xn, Sn, Cn, wn, Tn, En, Dn, On, kn = class {
+var isAssistantMessage = (message) => {
+	return message?.role === "assistant";
+};
+var isToolMessage = (message) => {
+	return message?.role === "tool";
+};
+//#endregion
+//#region node_modules/openai/lib/EventStream.mjs
+var _EventStream_instances, _EventStream_connectedPromise, _EventStream_resolveConnectedPromise, _EventStream_rejectConnectedPromise, _EventStream_endPromise, _EventStream_resolveEndPromise, _EventStream_rejectEndPromise, _EventStream_listeners, _EventStream_ended, _EventStream_errored, _EventStream_aborted, _EventStream_catchingPromiseCreated, _EventStream_handleError;
+var EventStream = class {
 	constructor() {
-		gn.add(this), this.controller = new AbortController(), _n.set(this, void 0), vn.set(this, () => {}), yn.set(this, () => {}), bn.set(this, void 0), xn.set(this, () => {}), Sn.set(this, () => {}), Cn.set(this, {}), wn.set(this, !1), Tn.set(this, !1), En.set(this, !1), Dn.set(this, !1), g(this, _n, new Promise((e, t) => {
-			g(this, vn, e, "f"), g(this, yn, t, "f");
-		}), "f"), g(this, bn, new Promise((e, t) => {
-			g(this, xn, e, "f"), g(this, Sn, t, "f");
-		}), "f"), _(this, _n, "f").catch(() => {}), _(this, bn, "f").catch(() => {});
+		_EventStream_instances.add(this);
+		this.controller = new AbortController();
+		_EventStream_connectedPromise.set(this, void 0);
+		_EventStream_resolveConnectedPromise.set(this, () => {});
+		_EventStream_rejectConnectedPromise.set(this, () => {});
+		_EventStream_endPromise.set(this, void 0);
+		_EventStream_resolveEndPromise.set(this, () => {});
+		_EventStream_rejectEndPromise.set(this, () => {});
+		_EventStream_listeners.set(this, {});
+		_EventStream_ended.set(this, false);
+		_EventStream_errored.set(this, false);
+		_EventStream_aborted.set(this, false);
+		_EventStream_catchingPromiseCreated.set(this, false);
+		__classPrivateFieldSet(this, _EventStream_connectedPromise, new Promise((resolve, reject) => {
+			__classPrivateFieldSet(this, _EventStream_resolveConnectedPromise, resolve, "f");
+			__classPrivateFieldSet(this, _EventStream_rejectConnectedPromise, reject, "f");
+		}), "f");
+		__classPrivateFieldSet(this, _EventStream_endPromise, new Promise((resolve, reject) => {
+			__classPrivateFieldSet(this, _EventStream_resolveEndPromise, resolve, "f");
+			__classPrivateFieldSet(this, _EventStream_rejectEndPromise, reject, "f");
+		}), "f");
+		__classPrivateFieldGet(this, _EventStream_connectedPromise, "f").catch(() => {});
+		__classPrivateFieldGet(this, _EventStream_endPromise, "f").catch(() => {});
 	}
-	_run(e) {
+	_run(executor) {
 		setTimeout(() => {
-			e().then(() => {
-				this._emitFinal(), this._emit("end");
-			}, _(this, gn, "m", On).bind(this));
+			executor().then(() => {
+				this._emitFinal();
+				this._emit("end");
+			}, __classPrivateFieldGet(this, _EventStream_instances, "m", _EventStream_handleError).bind(this));
 		}, 0);
 	}
 	_connected() {
-		this.ended || (_(this, vn, "f").call(this), this._emit("connect"));
+		if (this.ended) return;
+		__classPrivateFieldGet(this, _EventStream_resolveConnectedPromise, "f").call(this);
+		this._emit("connect");
 	}
 	get ended() {
-		return _(this, wn, "f");
+		return __classPrivateFieldGet(this, _EventStream_ended, "f");
 	}
 	get errored() {
-		return _(this, Tn, "f");
+		return __classPrivateFieldGet(this, _EventStream_errored, "f");
 	}
 	get aborted() {
-		return _(this, En, "f");
+		return __classPrivateFieldGet(this, _EventStream_aborted, "f");
 	}
 	abort() {
 		this.controller.abort();
 	}
-	on(e, t) {
-		return (_(this, Cn, "f")[e] || (_(this, Cn, "f")[e] = [])).push({ listener: t }), this;
+	/**
+	* Adds the listener function to the end of the listeners array for the event.
+	* No checks are made to see if the listener has already been added. Multiple calls passing
+	* the same combination of event and listener will result in the listener being added, and
+	* called, multiple times.
+	* @returns this ChatCompletionStream, so that calls can be chained
+	*/
+	on(event, listener) {
+		(__classPrivateFieldGet(this, _EventStream_listeners, "f")[event] || (__classPrivateFieldGet(this, _EventStream_listeners, "f")[event] = [])).push({ listener });
+		return this;
 	}
-	off(e, t) {
-		let n = _(this, Cn, "f")[e];
-		if (!n) return this;
-		let r = n.findIndex((e) => e.listener === t);
-		return r >= 0 && n.splice(r, 1), this;
+	/**
+	* Removes the specified listener from the listener array for the event.
+	* off() will remove, at most, one instance of a listener from the listener array. If any single
+	* listener has been added multiple times to the listener array for the specified event, then
+	* off() must be called multiple times to remove each instance.
+	* @returns this ChatCompletionStream, so that calls can be chained
+	*/
+	off(event, listener) {
+		const listeners = __classPrivateFieldGet(this, _EventStream_listeners, "f")[event];
+		if (!listeners) return this;
+		const index = listeners.findIndex((l) => l.listener === listener);
+		if (index >= 0) listeners.splice(index, 1);
+		return this;
 	}
-	once(e, t) {
-		return (_(this, Cn, "f")[e] || (_(this, Cn, "f")[e] = [])).push({
-			listener: t,
-			once: !0
-		}), this;
+	/**
+	* Adds a one-time listener function for the event. The next time the event is triggered,
+	* this listener is removed and then invoked.
+	* @returns this ChatCompletionStream, so that calls can be chained
+	*/
+	once(event, listener) {
+		(__classPrivateFieldGet(this, _EventStream_listeners, "f")[event] || (__classPrivateFieldGet(this, _EventStream_listeners, "f")[event] = [])).push({
+			listener,
+			once: true
+		});
+		return this;
 	}
-	emitted(e) {
-		return new Promise((t, n) => {
-			g(this, Dn, !0, "f"), e !== "error" && this.once("error", n), this.once(e, t);
+	/**
+	* This is similar to `.once()`, but returns a Promise that resolves the next time
+	* the event is triggered, instead of calling a listener callback.
+	* @returns a Promise that resolves the next time given event is triggered,
+	* or rejects if an error is emitted.  (If you request the 'error' event,
+	* returns a promise that resolves with the error).
+	*
+	* Example:
+	*
+	*   const message = await stream.emitted('message') // rejects if the stream errors
+	*/
+	emitted(event) {
+		return new Promise((resolve, reject) => {
+			__classPrivateFieldSet(this, _EventStream_catchingPromiseCreated, true, "f");
+			if (event !== "error") this.once("error", reject);
+			this.once(event, resolve);
 		});
 	}
 	async done() {
-		g(this, Dn, !0, "f"), await _(this, bn, "f");
+		__classPrivateFieldSet(this, _EventStream_catchingPromiseCreated, true, "f");
+		await __classPrivateFieldGet(this, _EventStream_endPromise, "f");
 	}
-	_emit(e, ...t) {
-		if (_(this, wn, "f")) return;
-		e === "end" && (g(this, wn, !0, "f"), _(this, xn, "f").call(this));
-		let n = _(this, Cn, "f")[e];
-		if (n && (_(this, Cn, "f")[e] = n.filter((e) => !e.once), n.forEach(({ listener: e }) => e(...t))), e === "abort") {
-			let e = t[0];
-			!_(this, Dn, "f") && !n?.length && Promise.reject(e), _(this, yn, "f").call(this, e), _(this, Sn, "f").call(this, e), this._emit("end");
+	_emit(event, ...args) {
+		if (__classPrivateFieldGet(this, _EventStream_ended, "f")) return;
+		if (event === "end") {
+			__classPrivateFieldSet(this, _EventStream_ended, true, "f");
+			__classPrivateFieldGet(this, _EventStream_resolveEndPromise, "f").call(this);
+		}
+		const listeners = __classPrivateFieldGet(this, _EventStream_listeners, "f")[event];
+		if (listeners) {
+			__classPrivateFieldGet(this, _EventStream_listeners, "f")[event] = listeners.filter((l) => !l.once);
+			listeners.forEach(({ listener }) => listener(...args));
+		}
+		if (event === "abort") {
+			const error = args[0];
+			if (!__classPrivateFieldGet(this, _EventStream_catchingPromiseCreated, "f") && !listeners?.length) Promise.reject(error);
+			__classPrivateFieldGet(this, _EventStream_rejectConnectedPromise, "f").call(this, error);
+			__classPrivateFieldGet(this, _EventStream_rejectEndPromise, "f").call(this, error);
+			this._emit("end");
 			return;
 		}
-		if (e === "error") {
-			let e = t[0];
-			!_(this, Dn, "f") && !n?.length && Promise.reject(e), _(this, yn, "f").call(this, e), _(this, Sn, "f").call(this, e), this._emit("end");
+		if (event === "error") {
+			const error = args[0];
+			if (!__classPrivateFieldGet(this, _EventStream_catchingPromiseCreated, "f") && !listeners?.length) Promise.reject(error);
+			__classPrivateFieldGet(this, _EventStream_rejectConnectedPromise, "f").call(this, error);
+			__classPrivateFieldGet(this, _EventStream_rejectEndPromise, "f").call(this, error);
+			this._emit("end");
 		}
 	}
 	_emitFinal() {}
 };
-_n = /* @__PURE__ */ new WeakMap(), vn = /* @__PURE__ */ new WeakMap(), yn = /* @__PURE__ */ new WeakMap(), bn = /* @__PURE__ */ new WeakMap(), xn = /* @__PURE__ */ new WeakMap(), Sn = /* @__PURE__ */ new WeakMap(), Cn = /* @__PURE__ */ new WeakMap(), wn = /* @__PURE__ */ new WeakMap(), Tn = /* @__PURE__ */ new WeakMap(), En = /* @__PURE__ */ new WeakMap(), Dn = /* @__PURE__ */ new WeakMap(), gn = /* @__PURE__ */ new WeakSet(), On = function(e) {
-	if (g(this, Tn, !0, "f"), e instanceof Error && e.name === "AbortError" && (e = new S()), e instanceof S) return g(this, En, !0, "f"), this._emit("abort", e);
-	if (e instanceof b) return this._emit("error", e);
-	if (e instanceof Error) {
-		let t = new b(e.message);
-		return t.cause = e, this._emit("error", t);
+_EventStream_connectedPromise = /* @__PURE__ */ new WeakMap(), _EventStream_resolveConnectedPromise = /* @__PURE__ */ new WeakMap(), _EventStream_rejectConnectedPromise = /* @__PURE__ */ new WeakMap(), _EventStream_endPromise = /* @__PURE__ */ new WeakMap(), _EventStream_resolveEndPromise = /* @__PURE__ */ new WeakMap(), _EventStream_rejectEndPromise = /* @__PURE__ */ new WeakMap(), _EventStream_listeners = /* @__PURE__ */ new WeakMap(), _EventStream_ended = /* @__PURE__ */ new WeakMap(), _EventStream_errored = /* @__PURE__ */ new WeakMap(), _EventStream_aborted = /* @__PURE__ */ new WeakMap(), _EventStream_catchingPromiseCreated = /* @__PURE__ */ new WeakMap(), _EventStream_instances = /* @__PURE__ */ new WeakSet(), _EventStream_handleError = function _EventStream_handleError(error) {
+	__classPrivateFieldSet(this, _EventStream_errored, true, "f");
+	if (error instanceof Error && error.name === "AbortError") error = new APIUserAbortError();
+	if (error instanceof APIUserAbortError) {
+		__classPrivateFieldSet(this, _EventStream_aborted, true, "f");
+		return this._emit("abort", error);
 	}
-	return this._emit("error", new b(String(e)));
+	if (error instanceof OpenAIError) return this._emit("error", error);
+	if (error instanceof Error) {
+		const openAIError = new OpenAIError(error.message);
+		openAIError.cause = error;
+		return this._emit("error", openAIError);
+	}
+	return this._emit("error", new OpenAIError(String(error)));
 };
 //#endregion
 //#region node_modules/openai/lib/RunnableFunction.mjs
-function An(e) {
-	return typeof e.parse == "function";
+function isRunnableFunctionWithParse(fn) {
+	return typeof fn.parse === "function";
 }
 //#endregion
 //#region node_modules/openai/lib/AbstractChatCompletionRunner.mjs
-var I, jn, Mn, Nn, Pn, Fn, In, Ln, Rn = 10, zn = class extends kn {
+var _AbstractChatCompletionRunner_instances, _AbstractChatCompletionRunner_getFinalContent, _AbstractChatCompletionRunner_getFinalMessage, _AbstractChatCompletionRunner_getFinalFunctionToolCall, _AbstractChatCompletionRunner_getFinalFunctionToolCallResult, _AbstractChatCompletionRunner_calculateTotalUsage, _AbstractChatCompletionRunner_validateParams, _AbstractChatCompletionRunner_stringifyFunctionCallResult;
+var DEFAULT_MAX_CHAT_COMPLETIONS = 10;
+var AbstractChatCompletionRunner = class extends EventStream {
 	constructor() {
-		super(...arguments), I.add(this), this._chatCompletions = [], this.messages = [];
+		super(...arguments);
+		_AbstractChatCompletionRunner_instances.add(this);
+		this._chatCompletions = [];
+		this.messages = [];
 	}
-	_addChatCompletion(e) {
-		this._chatCompletions.push(e), this._emit("chatCompletion", e);
-		let t = e.choices[0]?.message;
-		return t && this._addMessage(t), e;
+	_addChatCompletion(chatCompletion) {
+		this._chatCompletions.push(chatCompletion);
+		this._emit("chatCompletion", chatCompletion);
+		const message = chatCompletion.choices[0]?.message;
+		if (message) this._addMessage(message);
+		return chatCompletion;
 	}
-	_addMessage(e, t = !0) {
-		if ("content" in e || (e.content = null), this.messages.push(e), t) {
-			if (this._emit("message", e), hn(e) && e.content) this._emit("functionToolCallResult", e.content);
-			else if (mn(e) && e.tool_calls) for (let t of e.tool_calls) t.type === "function" && this._emit("functionToolCall", t.function);
+	_addMessage(message, emit = true) {
+		if (!("content" in message)) message.content = null;
+		this.messages.push(message);
+		if (emit) {
+			this._emit("message", message);
+			if (isToolMessage(message) && message.content) this._emit("functionToolCallResult", message.content);
+			else if (isAssistantMessage(message) && message.tool_calls) {
+				for (const tool_call of message.tool_calls) if (tool_call.type === "function") this._emit("functionToolCall", tool_call.function);
+			}
 		}
 	}
+	/**
+	* @returns a promise that resolves with the final ChatCompletion, or rejects
+	* if an error occurred or the stream ended prematurely without producing a ChatCompletion.
+	*/
 	async finalChatCompletion() {
 		await this.done();
-		let e = this._chatCompletions[this._chatCompletions.length - 1];
-		if (!e) throw new b("stream ended without producing a ChatCompletion");
-		return e;
+		const completion = this._chatCompletions[this._chatCompletions.length - 1];
+		if (!completion) throw new OpenAIError("stream ended without producing a ChatCompletion");
+		return completion;
 	}
+	/**
+	* @returns a promise that resolves with the content of the final ChatCompletionMessage, or rejects
+	* if an error occurred or the stream ended prematurely without producing a ChatCompletionMessage.
+	*/
 	async finalContent() {
-		return await this.done(), _(this, I, "m", jn).call(this);
+		await this.done();
+		return __classPrivateFieldGet(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalContent).call(this);
 	}
+	/**
+	* @returns a promise that resolves with the the final assistant ChatCompletionMessage response,
+	* or rejects if an error occurred or the stream ended prematurely without producing a ChatCompletionMessage.
+	*/
 	async finalMessage() {
-		return await this.done(), _(this, I, "m", Mn).call(this);
+		await this.done();
+		return __classPrivateFieldGet(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalMessage).call(this);
 	}
+	/**
+	* @returns a promise that resolves with the content of the final FunctionCall, or rejects
+	* if an error occurred or the stream ended prematurely without producing a ChatCompletionMessage.
+	*/
 	async finalFunctionToolCall() {
-		return await this.done(), _(this, I, "m", Nn).call(this);
+		await this.done();
+		return __classPrivateFieldGet(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalFunctionToolCall).call(this);
 	}
 	async finalFunctionToolCallResult() {
-		return await this.done(), _(this, I, "m", Pn).call(this);
+		await this.done();
+		return __classPrivateFieldGet(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalFunctionToolCallResult).call(this);
 	}
 	async totalUsage() {
-		return await this.done(), _(this, I, "m", Fn).call(this);
+		await this.done();
+		return __classPrivateFieldGet(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_calculateTotalUsage).call(this);
 	}
 	allChatCompletions() {
 		return [...this._chatCompletions];
 	}
 	_emitFinal() {
-		let e = this._chatCompletions[this._chatCompletions.length - 1];
-		e && this._emit("finalChatCompletion", e);
-		let t = _(this, I, "m", Mn).call(this);
-		t && this._emit("finalMessage", t);
-		let n = _(this, I, "m", jn).call(this);
-		n && this._emit("finalContent", n);
-		let r = _(this, I, "m", Nn).call(this);
-		r && this._emit("finalFunctionToolCall", r);
-		let i = _(this, I, "m", Pn).call(this);
-		i != null && this._emit("finalFunctionToolCallResult", i), this._chatCompletions.some((e) => e.usage) && this._emit("totalUsage", _(this, I, "m", Fn).call(this));
+		const completion = this._chatCompletions[this._chatCompletions.length - 1];
+		if (completion) this._emit("finalChatCompletion", completion);
+		const finalMessage = __classPrivateFieldGet(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalMessage).call(this);
+		if (finalMessage) this._emit("finalMessage", finalMessage);
+		const finalContent = __classPrivateFieldGet(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalContent).call(this);
+		if (finalContent) this._emit("finalContent", finalContent);
+		const finalFunctionCall = __classPrivateFieldGet(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalFunctionToolCall).call(this);
+		if (finalFunctionCall) this._emit("finalFunctionToolCall", finalFunctionCall);
+		const finalFunctionCallResult = __classPrivateFieldGet(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalFunctionToolCallResult).call(this);
+		if (finalFunctionCallResult != null) this._emit("finalFunctionToolCallResult", finalFunctionCallResult);
+		if (this._chatCompletions.some((c) => c.usage)) this._emit("totalUsage", __classPrivateFieldGet(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_calculateTotalUsage).call(this));
 	}
-	async _createChatCompletion(e, t, n) {
-		let r = n?.signal;
-		r && (r.aborted && this.controller.abort(), r.addEventListener("abort", () => this.controller.abort())), _(this, I, "m", In).call(this, t);
-		let i = await e.chat.completions.create({
-			...t,
-			stream: !1
+	async _createChatCompletion(client, params, options) {
+		const signal = options?.signal;
+		if (signal) {
+			if (signal.aborted) this.controller.abort();
+			signal.addEventListener("abort", () => this.controller.abort());
+		}
+		__classPrivateFieldGet(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_validateParams).call(this, params);
+		const chatCompletion = await client.chat.completions.create({
+			...params,
+			stream: false
 		}, {
-			...n,
+			...options,
 			signal: this.controller.signal
 		});
-		return this._connected(), this._addChatCompletion(sn(i, t));
+		this._connected();
+		return this._addChatCompletion(parseChatCompletion(chatCompletion, params));
 	}
-	async _runChatCompletion(e, t, n) {
-		for (let e of t.messages) this._addMessage(e, !1);
-		return await this._createChatCompletion(e, t, n);
+	async _runChatCompletion(client, params, options) {
+		for (const message of params.messages) this._addMessage(message, false);
+		return await this._createChatCompletion(client, params, options);
 	}
-	async _runTools(e, t, n) {
-		let r = "tool", { tool_choice: i = "auto", stream: a, ...o } = t, s = typeof i != "string" && i.type === "function" && i?.function?.name, { maxChatCompletions: c = Rn } = n || {}, l = t.tools.map((e) => {
-			if (an(e)) {
-				if (!e.$callback) throw new b("Tool given to `.runTools()` that does not have an associated function");
+	async _runTools(client, params, options) {
+		const role = "tool";
+		const { tool_choice = "auto", stream, ...restParams } = params;
+		const singleFunctionToCall = typeof tool_choice !== "string" && tool_choice.type === "function" && tool_choice?.function?.name;
+		const { maxChatCompletions = DEFAULT_MAX_CHAT_COMPLETIONS } = options || {};
+		const inputTools = params.tools.map((tool) => {
+			if (isAutoParsableTool$1(tool)) {
+				if (!tool.$callback) throw new OpenAIError("Tool given to `.runTools()` that does not have an associated function");
 				return {
 					type: "function",
 					function: {
-						function: e.$callback,
-						name: e.function.name,
-						description: e.function.description || "",
-						parameters: e.function.parameters,
-						parse: e.$parseRaw,
-						strict: !0
+						function: tool.$callback,
+						name: tool.function.name,
+						description: tool.function.description || "",
+						parameters: tool.function.parameters,
+						parse: tool.$parseRaw,
+						strict: true
 					}
 				};
 			}
-			return e;
-		}), u = {};
-		for (let e of l) e.type === "function" && (u[e.function.name || e.function.function.name] = e.function);
-		let d = "tools" in t ? l.map((e) => e.type === "function" ? {
+			return tool;
+		});
+		const functionsByName = {};
+		for (const f of inputTools) if (f.type === "function") functionsByName[f.function.name || f.function.function.name] = f.function;
+		const tools = "tools" in params ? inputTools.map((t) => t.type === "function" ? {
 			type: "function",
 			function: {
-				name: e.function.name || e.function.function.name,
-				parameters: e.function.parameters,
-				description: e.function.description,
-				strict: e.function.strict
+				name: t.function.name || t.function.function.name,
+				parameters: t.function.parameters,
+				description: t.function.description,
+				strict: t.function.strict
 			}
-		} : e) : void 0;
-		for (let e of t.messages) this._addMessage(e, !1);
-		for (let t = 0; t < c; ++t) {
-			let t = (await this._createChatCompletion(e, {
-				...o,
-				tool_choice: i,
-				tools: d,
+		} : t) : void 0;
+		for (const message of params.messages) this._addMessage(message, false);
+		for (let i = 0; i < maxChatCompletions; ++i) {
+			const message = (await this._createChatCompletion(client, {
+				...restParams,
+				tool_choice,
+				tools,
 				messages: [...this.messages]
-			}, n)).choices[0]?.message;
-			if (!t) throw new b("missing message in ChatCompletion response");
-			if (!t.tool_calls?.length) return;
-			for (let e of t.tool_calls) {
-				if (e.type !== "function") continue;
-				let t = e.id, { name: n, arguments: i } = e.function, a = u[n];
-				if (!a) {
-					let e = `Invalid tool_call: ${JSON.stringify(n)}. Available options are: ${Object.keys(u).map((e) => JSON.stringify(e)).join(", ")}. Please try again`;
+			}, options)).choices[0]?.message;
+			if (!message) throw new OpenAIError(`missing message in ChatCompletion response`);
+			if (!message.tool_calls?.length) return;
+			for (const tool_call of message.tool_calls) {
+				if (tool_call.type !== "function") continue;
+				const tool_call_id = tool_call.id;
+				const { name, arguments: args } = tool_call.function;
+				const fn = functionsByName[name];
+				if (!fn) {
+					const content = `Invalid tool_call: ${JSON.stringify(name)}. Available options are: ${Object.keys(functionsByName).map((name) => JSON.stringify(name)).join(", ")}. Please try again`;
 					this._addMessage({
-						role: r,
-						tool_call_id: t,
-						content: e
+						role,
+						tool_call_id,
+						content
 					});
 					continue;
-				} else if (s && s !== n) {
-					let e = `Invalid tool_call: ${JSON.stringify(n)}. ${JSON.stringify(s)} requested. Please try again`;
+				} else if (singleFunctionToCall && singleFunctionToCall !== name) {
+					const content = `Invalid tool_call: ${JSON.stringify(name)}. ${JSON.stringify(singleFunctionToCall)} requested. Please try again`;
 					this._addMessage({
-						role: r,
-						tool_call_id: t,
-						content: e
+						role,
+						tool_call_id,
+						content
 					});
 					continue;
 				}
-				let o;
+				let parsed;
 				try {
-					o = An(a) ? await a.parse(i) : i;
-				} catch (e) {
-					let n = e instanceof Error ? e.message : String(e);
+					parsed = isRunnableFunctionWithParse(fn) ? await fn.parse(args) : args;
+				} catch (error) {
+					const content = error instanceof Error ? error.message : String(error);
 					this._addMessage({
-						role: r,
-						tool_call_id: t,
-						content: n
+						role,
+						tool_call_id,
+						content
 					});
 					continue;
 				}
-				let c = await a.function(o, this), l = _(this, I, "m", Ln).call(this, c);
-				if (this._addMessage({
-					role: r,
-					tool_call_id: t,
-					content: l
-				}), s) return;
+				const rawContent = await fn.function(parsed, this);
+				const content = __classPrivateFieldGet(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_stringifyFunctionCallResult).call(this, rawContent);
+				this._addMessage({
+					role,
+					tool_call_id,
+					content
+				});
+				if (singleFunctionToCall) return;
 			}
 		}
 	}
 };
-I = /* @__PURE__ */ new WeakSet(), jn = function() {
-	return _(this, I, "m", Mn).call(this).content ?? null;
-}, Mn = function() {
-	let e = this.messages.length;
-	for (; e-- > 0;) {
-		let t = this.messages[e];
-		if (mn(t)) return {
-			...t,
-			content: t.content ?? null,
-			refusal: t.refusal ?? null
+_AbstractChatCompletionRunner_instances = /* @__PURE__ */ new WeakSet(), _AbstractChatCompletionRunner_getFinalContent = function _AbstractChatCompletionRunner_getFinalContent() {
+	return __classPrivateFieldGet(this, _AbstractChatCompletionRunner_instances, "m", _AbstractChatCompletionRunner_getFinalMessage).call(this).content ?? null;
+}, _AbstractChatCompletionRunner_getFinalMessage = function _AbstractChatCompletionRunner_getFinalMessage() {
+	let i = this.messages.length;
+	while (i-- > 0) {
+		const message = this.messages[i];
+		if (isAssistantMessage(message)) return {
+			...message,
+			content: message.content ?? null,
+			refusal: message.refusal ?? null
 		};
 	}
-	throw new b("stream ended without producing a ChatCompletionMessage with role=assistant");
-}, Nn = function() {
-	for (let e = this.messages.length - 1; e >= 0; e--) {
-		let t = this.messages[e];
-		if (mn(t) && t?.tool_calls?.length) return t.tool_calls.filter((e) => e.type === "function").at(-1)?.function;
+	throw new OpenAIError("stream ended without producing a ChatCompletionMessage with role=assistant");
+}, _AbstractChatCompletionRunner_getFinalFunctionToolCall = function _AbstractChatCompletionRunner_getFinalFunctionToolCall() {
+	for (let i = this.messages.length - 1; i >= 0; i--) {
+		const message = this.messages[i];
+		if (isAssistantMessage(message) && message?.tool_calls?.length) return message.tool_calls.filter((x) => x.type === "function").at(-1)?.function;
 	}
-}, Pn = function() {
-	for (let e = this.messages.length - 1; e >= 0; e--) {
-		let t = this.messages[e];
-		if (hn(t) && t.content != null && typeof t.content == "string" && this.messages.some((e) => e.role === "assistant" && e.tool_calls?.some((e) => e.type === "function" && e.id === t.tool_call_id))) return t.content;
+}, _AbstractChatCompletionRunner_getFinalFunctionToolCallResult = function _AbstractChatCompletionRunner_getFinalFunctionToolCallResult() {
+	for (let i = this.messages.length - 1; i >= 0; i--) {
+		const message = this.messages[i];
+		if (isToolMessage(message) && message.content != null && typeof message.content === "string" && this.messages.some((x) => x.role === "assistant" && x.tool_calls?.some((y) => y.type === "function" && y.id === message.tool_call_id))) return message.content;
 	}
-}, Fn = function() {
-	let e = {
+}, _AbstractChatCompletionRunner_calculateTotalUsage = function _AbstractChatCompletionRunner_calculateTotalUsage() {
+	const total = {
 		completion_tokens: 0,
 		prompt_tokens: 0,
 		total_tokens: 0
 	};
-	for (let { usage: t } of this._chatCompletions) t && (e.completion_tokens += t.completion_tokens, e.prompt_tokens += t.prompt_tokens, e.total_tokens += t.total_tokens);
-	return e;
-}, In = function(e) {
-	if (e.n != null && e.n > 1) throw new b("ChatCompletion convenience helpers only support n=1 at this time. To use n>1, please use chat.completions.create() directly.");
-}, Ln = function(e) {
-	return typeof e == "string" ? e : e === void 0 ? "undefined" : JSON.stringify(e);
+	for (const { usage } of this._chatCompletions) if (usage) {
+		total.completion_tokens += usage.completion_tokens;
+		total.prompt_tokens += usage.prompt_tokens;
+		total.total_tokens += usage.total_tokens;
+	}
+	return total;
+}, _AbstractChatCompletionRunner_validateParams = function _AbstractChatCompletionRunner_validateParams(params) {
+	if (params.n != null && params.n > 1) throw new OpenAIError("ChatCompletion convenience helpers only support n=1 at this time. To use n>1, please use chat.completions.create() directly.");
+}, _AbstractChatCompletionRunner_stringifyFunctionCallResult = function _AbstractChatCompletionRunner_stringifyFunctionCallResult(rawContent) {
+	return typeof rawContent === "string" ? rawContent : rawContent === void 0 ? "undefined" : JSON.stringify(rawContent);
 };
 //#endregion
 //#region node_modules/openai/lib/ChatCompletionRunner.mjs
-var Bn = class e extends zn {
-	static runTools(t, n, r) {
-		let i = new e(), a = {
-			...r,
+var ChatCompletionRunner = class ChatCompletionRunner extends AbstractChatCompletionRunner {
+	static runTools(client, params, options) {
+		const runner = new ChatCompletionRunner();
+		const opts = {
+			...options,
 			headers: {
-				...r?.headers,
+				...options?.headers,
 				"X-Stainless-Helper-Method": "runTools"
 			}
 		};
-		return i._run(() => i._runTools(t, n, a)), i;
+		runner._run(() => runner._runTools(client, params, opts));
+		return runner;
 	}
-	_addMessage(e, t = !0) {
-		super._addMessage(e, t), mn(e) && e.content && this._emit("content", e.content);
+	_addMessage(message, emit = true) {
+		super._addMessage(message, emit);
+		if (isAssistantMessage(message) && message.content) this._emit("content", message.content);
 	}
-}, L = {
+};
+//#endregion
+//#region node_modules/openai/_vendor/partial-json-parser/parser.mjs
+var Allow = {
 	STR: 1,
 	NUM: 2,
 	ARR: 4,
@@ -1460,1807 +2132,3881 @@ var Bn = class e extends zn {
 	ATOM: 499,
 	COLLECTION: 12,
 	ALL: 511
-}, Vn = class extends Error {}, Hn = class extends Error {};
-function Un(e, t = L.ALL) {
-	if (typeof e != "string") throw TypeError(`expecting str, got ${typeof e}`);
-	if (!e.trim()) throw Error(`${e} is empty`);
-	return Wn(e.trim(), t);
+};
+var PartialJSON = class extends Error {};
+var MalformedJSON = class extends Error {};
+/**
+* Parse incomplete JSON
+* @param {string} jsonString Partial JSON to be parsed
+* @param {number} allowPartial Specify what types are allowed to be partial, see {@link Allow} for details
+* @returns The parsed JSON
+* @throws {PartialJSON} If the JSON is incomplete (related to the `allow` parameter)
+* @throws {MalformedJSON} If the JSON is malformed
+*/
+function parseJSON(jsonString, allowPartial = Allow.ALL) {
+	if (typeof jsonString !== "string") throw new TypeError(`expecting str, got ${typeof jsonString}`);
+	if (!jsonString.trim()) throw new Error(`${jsonString} is empty`);
+	return _parseJSON(jsonString.trim(), allowPartial);
 }
-var Wn = (e, t) => {
-	let n = e.length, r = 0, i = (e) => {
-		throw new Vn(`${e} at position ${r}`);
-	}, a = (e) => {
-		throw new Hn(`${e} at position ${r}`);
-	}, o = () => (d(), r >= n && i("Unexpected end of input"), e[r] === "\"" ? s() : e[r] === "{" ? c() : e[r] === "[" ? l() : e.substring(r, r + 4) === "null" || L.NULL & t && n - r < 4 && "null".startsWith(e.substring(r)) ? (r += 4, null) : e.substring(r, r + 4) === "true" || L.BOOL & t && n - r < 4 && "true".startsWith(e.substring(r)) ? (r += 4, !0) : e.substring(r, r + 5) === "false" || L.BOOL & t && n - r < 5 && "false".startsWith(e.substring(r)) ? (r += 5, !1) : e.substring(r, r + 8) === "Infinity" || L.INFINITY & t && n - r < 8 && "Infinity".startsWith(e.substring(r)) ? (r += 8, Infinity) : e.substring(r, r + 9) === "-Infinity" || L.MINUS_INFINITY & t && 1 < n - r && n - r < 9 && "-Infinity".startsWith(e.substring(r)) ? (r += 9, -Infinity) : e.substring(r, r + 3) === "NaN" || L.NAN & t && n - r < 3 && "NaN".startsWith(e.substring(r)) ? (r += 3, NaN) : u()), s = () => {
-		let o = r, s = !1;
-		for (r++; r < n && (e[r] !== "\"" || s && e[r - 1] === "\\");) s = e[r] === "\\" ? !s : !1, r++;
-		if (e.charAt(r) == "\"") try {
-			return JSON.parse(e.substring(o, ++r - Number(s)));
+var _parseJSON = (jsonString, allow) => {
+	const length = jsonString.length;
+	let index = 0;
+	const markPartialJSON = (msg) => {
+		throw new PartialJSON(`${msg} at position ${index}`);
+	};
+	const throwMalformedError = (msg) => {
+		throw new MalformedJSON(`${msg} at position ${index}`);
+	};
+	const parseAny = () => {
+		skipBlank();
+		if (index >= length) markPartialJSON("Unexpected end of input");
+		if (jsonString[index] === "\"") return parseStr();
+		if (jsonString[index] === "{") return parseObj();
+		if (jsonString[index] === "[") return parseArr();
+		if (jsonString.substring(index, index + 4) === "null" || Allow.NULL & allow && length - index < 4 && "null".startsWith(jsonString.substring(index))) {
+			index += 4;
+			return null;
+		}
+		if (jsonString.substring(index, index + 4) === "true" || Allow.BOOL & allow && length - index < 4 && "true".startsWith(jsonString.substring(index))) {
+			index += 4;
+			return true;
+		}
+		if (jsonString.substring(index, index + 5) === "false" || Allow.BOOL & allow && length - index < 5 && "false".startsWith(jsonString.substring(index))) {
+			index += 5;
+			return false;
+		}
+		if (jsonString.substring(index, index + 8) === "Infinity" || Allow.INFINITY & allow && length - index < 8 && "Infinity".startsWith(jsonString.substring(index))) {
+			index += 8;
+			return Infinity;
+		}
+		if (jsonString.substring(index, index + 9) === "-Infinity" || Allow.MINUS_INFINITY & allow && 1 < length - index && length - index < 9 && "-Infinity".startsWith(jsonString.substring(index))) {
+			index += 9;
+			return -Infinity;
+		}
+		if (jsonString.substring(index, index + 3) === "NaN" || Allow.NAN & allow && length - index < 3 && "NaN".startsWith(jsonString.substring(index))) {
+			index += 3;
+			return NaN;
+		}
+		return parseNum();
+	};
+	const parseStr = () => {
+		const start = index;
+		let escape = false;
+		index++;
+		while (index < length && (jsonString[index] !== "\"" || escape && jsonString[index - 1] === "\\")) {
+			escape = jsonString[index] === "\\" ? !escape : false;
+			index++;
+		}
+		if (jsonString.charAt(index) == "\"") try {
+			return JSON.parse(jsonString.substring(start, ++index - Number(escape)));
 		} catch (e) {
-			a(String(e));
+			throwMalformedError(String(e));
 		}
-		else if (L.STR & t) try {
-			return JSON.parse(e.substring(o, r - Number(s)) + "\"");
-		} catch {
-			return JSON.parse(e.substring(o, e.lastIndexOf("\\")) + "\"");
+		else if (Allow.STR & allow) try {
+			return JSON.parse(jsonString.substring(start, index - Number(escape)) + "\"");
+		} catch (e) {
+			return JSON.parse(jsonString.substring(start, jsonString.lastIndexOf("\\")) + "\"");
 		}
-		i("Unterminated string literal");
-	}, c = () => {
-		r++, d();
-		let a = {};
+		markPartialJSON("Unterminated string literal");
+	};
+	const parseObj = () => {
+		index++;
+		skipBlank();
+		const obj = {};
 		try {
-			for (; e[r] !== "}";) {
-				if (d(), r >= n && L.OBJ & t) return a;
-				let i = s();
-				d(), r++;
+			while (jsonString[index] !== "}") {
+				skipBlank();
+				if (index >= length && Allow.OBJ & allow) return obj;
+				const key = parseStr();
+				skipBlank();
+				index++;
 				try {
-					let e = o();
-					Object.defineProperty(a, i, {
-						value: e,
-						writable: !0,
-						enumerable: !0,
-						configurable: !0
+					const value = parseAny();
+					Object.defineProperty(obj, key, {
+						value,
+						writable: true,
+						enumerable: true,
+						configurable: true
 					});
 				} catch (e) {
-					if (L.OBJ & t) return a;
-					throw e;
+					if (Allow.OBJ & allow) return obj;
+					else throw e;
 				}
-				d(), e[r] === "," && r++;
+				skipBlank();
+				if (jsonString[index] === ",") index++;
 			}
-		} catch {
-			if (L.OBJ & t) return a;
-			i("Expected '}' at end of object");
+		} catch (e) {
+			if (Allow.OBJ & allow) return obj;
+			else markPartialJSON("Expected '}' at end of object");
 		}
-		return r++, a;
-	}, l = () => {
-		r++;
-		let n = [];
-		try {
-			for (; e[r] !== "]";) n.push(o()), d(), e[r] === "," && r++;
-		} catch {
-			if (L.ARR & t) return n;
-			i("Expected ']' at end of array");
-		}
-		return r++, n;
-	}, u = () => {
-		if (r === 0) {
-			e === "-" && L.NUM & t && i("Not sure what '-' is");
-			try {
-				return JSON.parse(e);
-			} catch (n) {
-				if (L.NUM & t) try {
-					return e[e.length - 1] === "." ? JSON.parse(e.substring(0, e.lastIndexOf("."))) : JSON.parse(e.substring(0, e.lastIndexOf("e")));
-				} catch {}
-				a(String(n));
-			}
-		}
-		let o = r;
-		for (e[r] === "-" && r++; e[r] && !",]}".includes(e[r]);) r++;
-		r == n && !(L.NUM & t) && i("Unterminated number literal");
-		try {
-			return JSON.parse(e.substring(o, r));
-		} catch {
-			e.substring(o, r) === "-" && L.NUM & t && i("Not sure what '-' is");
-			try {
-				return JSON.parse(e.substring(o, e.lastIndexOf("e")));
-			} catch (e) {
-				a(String(e));
-			}
-		}
-	}, d = () => {
-		for (; r < n && " \n\r	".includes(e[r]);) r++;
+		index++;
+		return obj;
 	};
-	return o();
-}, Gn = (e) => Un(e, L.ALL ^ L.NUM), R, Kn, qn, Jn, Yn, Xn, Zn, Qn, $n, er, tr, nr, rr = class e extends zn {
-	constructor(e) {
-		super(), R.add(this), Kn.set(this, void 0), qn.set(this, void 0), Jn.set(this, void 0), g(this, Kn, e, "f"), g(this, qn, [], "f");
+	const parseArr = () => {
+		index++;
+		const arr = [];
+		try {
+			while (jsonString[index] !== "]") {
+				arr.push(parseAny());
+				skipBlank();
+				if (jsonString[index] === ",") index++;
+			}
+		} catch (e) {
+			if (Allow.ARR & allow) return arr;
+			markPartialJSON("Expected ']' at end of array");
+		}
+		index++;
+		return arr;
+	};
+	const parseNum = () => {
+		if (index === 0) {
+			if (jsonString === "-" && Allow.NUM & allow) markPartialJSON("Not sure what '-' is");
+			try {
+				return JSON.parse(jsonString);
+			} catch (e) {
+				if (Allow.NUM & allow) try {
+					if ("." === jsonString[jsonString.length - 1]) return JSON.parse(jsonString.substring(0, jsonString.lastIndexOf(".")));
+					return JSON.parse(jsonString.substring(0, jsonString.lastIndexOf("e")));
+				} catch (e) {}
+				throwMalformedError(String(e));
+			}
+		}
+		const start = index;
+		if (jsonString[index] === "-") index++;
+		while (jsonString[index] && !",]}".includes(jsonString[index])) index++;
+		if (index == length && !(Allow.NUM & allow)) markPartialJSON("Unterminated number literal");
+		try {
+			return JSON.parse(jsonString.substring(start, index));
+		} catch (e) {
+			if (jsonString.substring(start, index) === "-" && Allow.NUM & allow) markPartialJSON("Not sure what '-' is");
+			try {
+				return JSON.parse(jsonString.substring(start, jsonString.lastIndexOf("e")));
+			} catch (e) {
+				throwMalformedError(String(e));
+			}
+		}
+	};
+	const skipBlank = () => {
+		while (index < length && " \n\r	".includes(jsonString[index])) index++;
+	};
+	return parseAny();
+};
+var partialParse = (input) => parseJSON(input, Allow.ALL ^ Allow.NUM);
+//#endregion
+//#region node_modules/openai/lib/ChatCompletionStream.mjs
+var _ChatCompletionStream_instances, _ChatCompletionStream_params, _ChatCompletionStream_choiceEventStates, _ChatCompletionStream_currentChatCompletionSnapshot, _ChatCompletionStream_beginRequest, _ChatCompletionStream_getChoiceEventState, _ChatCompletionStream_addChunk, _ChatCompletionStream_emitToolCallDoneEvent, _ChatCompletionStream_emitContentDoneEvents, _ChatCompletionStream_endRequest, _ChatCompletionStream_getAutoParseableResponseFormat, _ChatCompletionStream_accumulateChatCompletion;
+var ChatCompletionStream = class ChatCompletionStream extends AbstractChatCompletionRunner {
+	constructor(params) {
+		super();
+		_ChatCompletionStream_instances.add(this);
+		_ChatCompletionStream_params.set(this, void 0);
+		_ChatCompletionStream_choiceEventStates.set(this, void 0);
+		_ChatCompletionStream_currentChatCompletionSnapshot.set(this, void 0);
+		__classPrivateFieldSet(this, _ChatCompletionStream_params, params, "f");
+		__classPrivateFieldSet(this, _ChatCompletionStream_choiceEventStates, [], "f");
 	}
 	get currentChatCompletionSnapshot() {
-		return _(this, Jn, "f");
+		return __classPrivateFieldGet(this, _ChatCompletionStream_currentChatCompletionSnapshot, "f");
 	}
-	static fromReadableStream(t) {
-		let n = new e(null);
-		return n._run(() => n._fromReadableStream(t)), n;
+	/**
+	* Intended for use on the frontend, consuming a stream produced with
+	* `.toReadableStream()` on the backend.
+	*
+	* Note that messages sent to the model do not appear in `.on('message')`
+	* in this context.
+	*/
+	static fromReadableStream(stream) {
+		const runner = new ChatCompletionStream(null);
+		runner._run(() => runner._fromReadableStream(stream));
+		return runner;
 	}
-	static createChatCompletion(t, n, r) {
-		let i = new e(n);
-		return i._run(() => i._runChatCompletion(t, {
-			...n,
-			stream: !0
+	static createChatCompletion(client, params, options) {
+		const runner = new ChatCompletionStream(params);
+		runner._run(() => runner._runChatCompletion(client, {
+			...params,
+			stream: true
 		}, {
-			...r,
+			...options,
 			headers: {
-				...r?.headers,
+				...options?.headers,
 				"X-Stainless-Helper-Method": "stream"
 			}
-		})), i;
+		}));
+		return runner;
 	}
-	async _createChatCompletion(e, t, n) {
+	async _createChatCompletion(client, params, options) {
 		super._createChatCompletion;
-		let r = n?.signal;
-		r && (r.aborted && this.controller.abort(), r.addEventListener("abort", () => this.controller.abort())), _(this, R, "m", Yn).call(this);
-		let i = await e.chat.completions.create({
-			...t,
-			stream: !0
+		const signal = options?.signal;
+		if (signal) {
+			if (signal.aborted) this.controller.abort();
+			signal.addEventListener("abort", () => this.controller.abort());
+		}
+		__classPrivateFieldGet(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_beginRequest).call(this);
+		const stream = await client.chat.completions.create({
+			...params,
+			stream: true
 		}, {
-			...n,
+			...options,
 			signal: this.controller.signal
 		});
 		this._connected();
-		for await (let e of i) _(this, R, "m", Zn).call(this, e);
-		if (i.controller.signal?.aborted) throw new S();
-		return this._addChatCompletion(_(this, R, "m", er).call(this));
+		for await (const chunk of stream) __classPrivateFieldGet(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_addChunk).call(this, chunk);
+		if (stream.controller.signal?.aborted) throw new APIUserAbortError();
+		return this._addChatCompletion(__classPrivateFieldGet(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_endRequest).call(this));
 	}
-	async _fromReadableStream(e, t) {
-		let n = t?.signal;
-		n && (n.aborted && this.controller.abort(), n.addEventListener("abort", () => this.controller.abort())), _(this, R, "m", Yn).call(this), this._connected();
-		let r = yt.fromReadableStream(e, this.controller), i;
-		for await (let e of r) i && i !== e.id && this._addChatCompletion(_(this, R, "m", er).call(this)), _(this, R, "m", Zn).call(this, e), i = e.id;
-		if (r.controller.signal?.aborted) throw new S();
-		return this._addChatCompletion(_(this, R, "m", er).call(this));
+	async _fromReadableStream(readableStream, options) {
+		const signal = options?.signal;
+		if (signal) {
+			if (signal.aborted) this.controller.abort();
+			signal.addEventListener("abort", () => this.controller.abort());
+		}
+		__classPrivateFieldGet(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_beginRequest).call(this);
+		this._connected();
+		const stream = Stream.fromReadableStream(readableStream, this.controller);
+		let chatId;
+		for await (const chunk of stream) {
+			if (chatId && chatId !== chunk.id) this._addChatCompletion(__classPrivateFieldGet(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_endRequest).call(this));
+			__classPrivateFieldGet(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_addChunk).call(this, chunk);
+			chatId = chunk.id;
+		}
+		if (stream.controller.signal?.aborted) throw new APIUserAbortError();
+		return this._addChatCompletion(__classPrivateFieldGet(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_endRequest).call(this));
 	}
-	[(Kn = /* @__PURE__ */ new WeakMap(), qn = /* @__PURE__ */ new WeakMap(), Jn = /* @__PURE__ */ new WeakMap(), R = /* @__PURE__ */ new WeakSet(), Yn = function() {
-		this.ended || g(this, Jn, void 0, "f");
-	}, Xn = function(e) {
-		let t = _(this, qn, "f")[e.index];
-		return t || (t = {
-			content_done: !1,
-			refusal_done: !1,
-			logprobs_content_done: !1,
-			logprobs_refusal_done: !1,
+	[(_ChatCompletionStream_params = /* @__PURE__ */ new WeakMap(), _ChatCompletionStream_choiceEventStates = /* @__PURE__ */ new WeakMap(), _ChatCompletionStream_currentChatCompletionSnapshot = /* @__PURE__ */ new WeakMap(), _ChatCompletionStream_instances = /* @__PURE__ */ new WeakSet(), _ChatCompletionStream_beginRequest = function _ChatCompletionStream_beginRequest() {
+		if (this.ended) return;
+		__classPrivateFieldSet(this, _ChatCompletionStream_currentChatCompletionSnapshot, void 0, "f");
+	}, _ChatCompletionStream_getChoiceEventState = function _ChatCompletionStream_getChoiceEventState(choice) {
+		let state = __classPrivateFieldGet(this, _ChatCompletionStream_choiceEventStates, "f")[choice.index];
+		if (state) return state;
+		state = {
+			content_done: false,
+			refusal_done: false,
+			logprobs_content_done: false,
+			logprobs_refusal_done: false,
 			done_tool_calls: /* @__PURE__ */ new Set(),
 			current_tool_call_index: null
-		}, _(this, qn, "f")[e.index] = t, t);
-	}, Zn = function(e) {
+		};
+		__classPrivateFieldGet(this, _ChatCompletionStream_choiceEventStates, "f")[choice.index] = state;
+		return state;
+	}, _ChatCompletionStream_addChunk = function _ChatCompletionStream_addChunk(chunk) {
 		if (this.ended) return;
-		let t = _(this, R, "m", nr).call(this, e);
-		this._emit("chunk", e, t);
-		for (let n of e.choices) {
-			let e = t.choices[n.index];
-			n.delta.content != null && e.message?.role === "assistant" && e.message?.content && (this._emit("content", n.delta.content, e.message.content), this._emit("content.delta", {
-				delta: n.delta.content,
-				snapshot: e.message.content,
-				parsed: e.message.parsed
-			})), n.delta.refusal != null && e.message?.role === "assistant" && e.message?.refusal && this._emit("refusal.delta", {
-				delta: n.delta.refusal,
-				snapshot: e.message.refusal
-			}), n.logprobs?.content != null && e.message?.role === "assistant" && this._emit("logprobs.content.delta", {
-				content: n.logprobs?.content,
-				snapshot: e.logprobs?.content ?? []
-			}), n.logprobs?.refusal != null && e.message?.role === "assistant" && this._emit("logprobs.refusal.delta", {
-				refusal: n.logprobs?.refusal,
-				snapshot: e.logprobs?.refusal ?? []
+		const completion = __classPrivateFieldGet(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_accumulateChatCompletion).call(this, chunk);
+		this._emit("chunk", chunk, completion);
+		for (const choice of chunk.choices) {
+			const choiceSnapshot = completion.choices[choice.index];
+			if (choice.delta.content != null && choiceSnapshot.message?.role === "assistant" && choiceSnapshot.message?.content) {
+				this._emit("content", choice.delta.content, choiceSnapshot.message.content);
+				this._emit("content.delta", {
+					delta: choice.delta.content,
+					snapshot: choiceSnapshot.message.content,
+					parsed: choiceSnapshot.message.parsed
+				});
+			}
+			if (choice.delta.refusal != null && choiceSnapshot.message?.role === "assistant" && choiceSnapshot.message?.refusal) this._emit("refusal.delta", {
+				delta: choice.delta.refusal,
+				snapshot: choiceSnapshot.message.refusal
 			});
-			let r = _(this, R, "m", Xn).call(this, e);
-			e.finish_reason && (_(this, R, "m", $n).call(this, e), r.current_tool_call_index != null && _(this, R, "m", Qn).call(this, e, r.current_tool_call_index));
-			for (let t of n.delta.tool_calls ?? []) r.current_tool_call_index !== t.index && (_(this, R, "m", $n).call(this, e), r.current_tool_call_index != null && _(this, R, "m", Qn).call(this, e, r.current_tool_call_index)), r.current_tool_call_index = t.index;
-			for (let t of n.delta.tool_calls ?? []) {
-				let n = e.message.tool_calls?.[t.index];
-				n?.type && (n?.type === "function" ? this._emit("tool_calls.function.arguments.delta", {
-					name: n.function?.name,
-					index: t.index,
-					arguments: n.function.arguments,
-					parsed_arguments: n.function.parsed_arguments,
-					arguments_delta: t.function?.arguments ?? ""
-				}) : n?.type);
+			if (choice.logprobs?.content != null && choiceSnapshot.message?.role === "assistant") this._emit("logprobs.content.delta", {
+				content: choice.logprobs?.content,
+				snapshot: choiceSnapshot.logprobs?.content ?? []
+			});
+			if (choice.logprobs?.refusal != null && choiceSnapshot.message?.role === "assistant") this._emit("logprobs.refusal.delta", {
+				refusal: choice.logprobs?.refusal,
+				snapshot: choiceSnapshot.logprobs?.refusal ?? []
+			});
+			const state = __classPrivateFieldGet(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_getChoiceEventState).call(this, choiceSnapshot);
+			if (choiceSnapshot.finish_reason) {
+				__classPrivateFieldGet(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_emitContentDoneEvents).call(this, choiceSnapshot);
+				if (state.current_tool_call_index != null) __classPrivateFieldGet(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_emitToolCallDoneEvent).call(this, choiceSnapshot, state.current_tool_call_index);
+			}
+			for (const toolCall of choice.delta.tool_calls ?? []) {
+				if (state.current_tool_call_index !== toolCall.index) {
+					__classPrivateFieldGet(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_emitContentDoneEvents).call(this, choiceSnapshot);
+					if (state.current_tool_call_index != null) __classPrivateFieldGet(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_emitToolCallDoneEvent).call(this, choiceSnapshot, state.current_tool_call_index);
+				}
+				state.current_tool_call_index = toolCall.index;
+			}
+			for (const toolCallDelta of choice.delta.tool_calls ?? []) {
+				const toolCallSnapshot = choiceSnapshot.message.tool_calls?.[toolCallDelta.index];
+				if (!toolCallSnapshot?.type) continue;
+				if (toolCallSnapshot?.type === "function") this._emit("tool_calls.function.arguments.delta", {
+					name: toolCallSnapshot.function?.name,
+					index: toolCallDelta.index,
+					arguments: toolCallSnapshot.function.arguments,
+					parsed_arguments: toolCallSnapshot.function.parsed_arguments,
+					arguments_delta: toolCallDelta.function?.arguments ?? ""
+				});
+				else toolCallSnapshot?.type;
 			}
 		}
-	}, Qn = function(e, t) {
-		if (_(this, R, "m", Xn).call(this, e).done_tool_calls.has(t)) return;
-		let n = e.message.tool_calls?.[t];
-		if (!n) throw Error("no tool call snapshot");
-		if (!n.type) throw Error("tool call snapshot missing `type`");
-		if (n.type === "function") {
-			let e = _(this, Kn, "f")?.tools?.find((e) => nn(e) && e.function.name === n.function.name);
+	}, _ChatCompletionStream_emitToolCallDoneEvent = function _ChatCompletionStream_emitToolCallDoneEvent(choiceSnapshot, toolCallIndex) {
+		if (__classPrivateFieldGet(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_getChoiceEventState).call(this, choiceSnapshot).done_tool_calls.has(toolCallIndex)) return;
+		const toolCallSnapshot = choiceSnapshot.message.tool_calls?.[toolCallIndex];
+		if (!toolCallSnapshot) throw new Error("no tool call snapshot");
+		if (!toolCallSnapshot.type) throw new Error("tool call snapshot missing `type`");
+		if (toolCallSnapshot.type === "function") {
+			const inputTool = __classPrivateFieldGet(this, _ChatCompletionStream_params, "f")?.tools?.find((tool) => isChatCompletionFunctionTool(tool) && tool.function.name === toolCallSnapshot.function.name);
 			this._emit("tool_calls.function.arguments.done", {
-				name: n.function.name,
-				index: t,
-				arguments: n.function.arguments,
-				parsed_arguments: an(e) ? e.$parseRaw(n.function.arguments) : e?.function.strict ? JSON.parse(n.function.arguments) : null
+				name: toolCallSnapshot.function.name,
+				index: toolCallIndex,
+				arguments: toolCallSnapshot.function.arguments,
+				parsed_arguments: isAutoParsableTool$1(inputTool) ? inputTool.$parseRaw(toolCallSnapshot.function.arguments) : inputTool?.function.strict ? JSON.parse(toolCallSnapshot.function.arguments) : null
 			});
-		} else n.type;
-	}, $n = function(e) {
-		let t = _(this, R, "m", Xn).call(this, e);
-		if (e.message.content && !t.content_done) {
-			t.content_done = !0;
-			let n = _(this, R, "m", tr).call(this);
+		} else toolCallSnapshot.type;
+	}, _ChatCompletionStream_emitContentDoneEvents = function _ChatCompletionStream_emitContentDoneEvents(choiceSnapshot) {
+		const state = __classPrivateFieldGet(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_getChoiceEventState).call(this, choiceSnapshot);
+		if (choiceSnapshot.message.content && !state.content_done) {
+			state.content_done = true;
+			const responseFormat = __classPrivateFieldGet(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_getAutoParseableResponseFormat).call(this);
 			this._emit("content.done", {
-				content: e.message.content,
-				parsed: n ? n.$parseRaw(e.message.content) : null
+				content: choiceSnapshot.message.content,
+				parsed: responseFormat ? responseFormat.$parseRaw(choiceSnapshot.message.content) : null
 			});
 		}
-		e.message.refusal && !t.refusal_done && (t.refusal_done = !0, this._emit("refusal.done", { refusal: e.message.refusal })), e.logprobs?.content && !t.logprobs_content_done && (t.logprobs_content_done = !0, this._emit("logprobs.content.done", { content: e.logprobs.content })), e.logprobs?.refusal && !t.logprobs_refusal_done && (t.logprobs_refusal_done = !0, this._emit("logprobs.refusal.done", { refusal: e.logprobs.refusal }));
-	}, er = function() {
-		if (this.ended) throw new b("stream has ended, this shouldn't happen");
-		let e = _(this, Jn, "f");
-		if (!e) throw new b("request ended without sending any chunks");
-		return g(this, Jn, void 0, "f"), g(this, qn, [], "f"), ir(e, _(this, Kn, "f"));
-	}, tr = function() {
-		let e = _(this, Kn, "f")?.response_format;
-		return rn(e) ? e : null;
-	}, nr = function(e) {
-		var t, n, r, i;
-		let a = _(this, Jn, "f"), { choices: o, ...s } = e;
-		a ? Object.assign(a, s) : a = g(this, Jn, {
-			...s,
+		if (choiceSnapshot.message.refusal && !state.refusal_done) {
+			state.refusal_done = true;
+			this._emit("refusal.done", { refusal: choiceSnapshot.message.refusal });
+		}
+		if (choiceSnapshot.logprobs?.content && !state.logprobs_content_done) {
+			state.logprobs_content_done = true;
+			this._emit("logprobs.content.done", { content: choiceSnapshot.logprobs.content });
+		}
+		if (choiceSnapshot.logprobs?.refusal && !state.logprobs_refusal_done) {
+			state.logprobs_refusal_done = true;
+			this._emit("logprobs.refusal.done", { refusal: choiceSnapshot.logprobs.refusal });
+		}
+	}, _ChatCompletionStream_endRequest = function _ChatCompletionStream_endRequest() {
+		if (this.ended) throw new OpenAIError(`stream has ended, this shouldn't happen`);
+		const snapshot = __classPrivateFieldGet(this, _ChatCompletionStream_currentChatCompletionSnapshot, "f");
+		if (!snapshot) throw new OpenAIError(`request ended without sending any chunks`);
+		__classPrivateFieldSet(this, _ChatCompletionStream_currentChatCompletionSnapshot, void 0, "f");
+		__classPrivateFieldSet(this, _ChatCompletionStream_choiceEventStates, [], "f");
+		return finalizeChatCompletion(snapshot, __classPrivateFieldGet(this, _ChatCompletionStream_params, "f"));
+	}, _ChatCompletionStream_getAutoParseableResponseFormat = function _ChatCompletionStream_getAutoParseableResponseFormat() {
+		const responseFormat = __classPrivateFieldGet(this, _ChatCompletionStream_params, "f")?.response_format;
+		if (isAutoParsableResponseFormat(responseFormat)) return responseFormat;
+		return null;
+	}, _ChatCompletionStream_accumulateChatCompletion = function _ChatCompletionStream_accumulateChatCompletion(chunk) {
+		var _a, _b, _c, _d;
+		let snapshot = __classPrivateFieldGet(this, _ChatCompletionStream_currentChatCompletionSnapshot, "f");
+		const { choices, ...rest } = chunk;
+		if (!snapshot) snapshot = __classPrivateFieldSet(this, _ChatCompletionStream_currentChatCompletionSnapshot, {
+			...rest,
 			choices: []
 		}, "f");
-		for (let { delta: o, finish_reason: s, index: c, logprobs: l = null, ...u } of e.choices) {
-			let e = a.choices[c];
-			if (e ||= a.choices[c] = {
-				finish_reason: s,
-				index: c,
+		else Object.assign(snapshot, rest);
+		for (const { delta, finish_reason, index, logprobs = null, ...other } of chunk.choices) {
+			let choice = snapshot.choices[index];
+			if (!choice) choice = snapshot.choices[index] = {
+				finish_reason,
+				index,
 				message: {},
-				logprobs: l,
-				...u
-			}, l) if (!e.logprobs) e.logprobs = Object.assign({}, l);
+				logprobs,
+				...other
+			};
+			if (logprobs) if (!choice.logprobs) choice.logprobs = Object.assign({}, logprobs);
 			else {
-				let { content: r, refusal: i, ...a } = l;
-				Object.assign(e.logprobs, a), r && ((t = e.logprobs).content ?? (t.content = []), e.logprobs.content.push(...r)), i && ((n = e.logprobs).refusal ?? (n.refusal = []), e.logprobs.refusal.push(...i));
+				const { content, refusal, ...rest } = logprobs;
+				Object.assign(choice.logprobs, rest);
+				if (content) {
+					(_a = choice.logprobs).content ?? (_a.content = []);
+					choice.logprobs.content.push(...content);
+				}
+				if (refusal) {
+					(_b = choice.logprobs).refusal ?? (_b.refusal = []);
+					choice.logprobs.refusal.push(...refusal);
+				}
 			}
-			if (s && (e.finish_reason = s, _(this, Kn, "f") && dn(_(this, Kn, "f")))) {
-				if (s === "length") throw new ue();
-				if (s === "content_filter") throw new de();
+			if (finish_reason) {
+				choice.finish_reason = finish_reason;
+				if (__classPrivateFieldGet(this, _ChatCompletionStream_params, "f") && hasAutoParseableInput$1(__classPrivateFieldGet(this, _ChatCompletionStream_params, "f"))) {
+					if (finish_reason === "length") throw new LengthFinishReasonError();
+					if (finish_reason === "content_filter") throw new ContentFilterFinishReasonError();
+				}
 			}
-			if (Object.assign(e, u), !o) continue;
-			let { content: d, refusal: f, function_call: p, role: m, tool_calls: h, ...g } = o;
-			if (Object.assign(e.message, g), f && (e.message.refusal = (e.message.refusal || "") + f), m && (e.message.role = m), p && (e.message.function_call ? (p.name && (e.message.function_call.name = p.name), p.arguments && ((r = e.message.function_call).arguments ?? (r.arguments = ""), e.message.function_call.arguments += p.arguments)) : e.message.function_call = p), d && (e.message.content = (e.message.content || "") + d, !e.message.refusal && _(this, R, "m", tr).call(this) && (e.message.parsed = Gn(e.message.content))), h) {
-				e.message.tool_calls || (e.message.tool_calls = []);
-				for (let { index: t, id: n, type: r, function: a, ...o } of h) {
-					let s = (i = e.message.tool_calls)[t] ?? (i[t] = {});
-					Object.assign(s, o), n && (s.id = n), r && (s.type = r), a && (s.function ??= {
-						name: a.name ?? "",
+			Object.assign(choice, other);
+			if (!delta) continue;
+			const { content, refusal, function_call, role, tool_calls, ...rest } = delta;
+			Object.assign(choice.message, rest);
+			if (refusal) choice.message.refusal = (choice.message.refusal || "") + refusal;
+			if (role) choice.message.role = role;
+			if (function_call) if (!choice.message.function_call) choice.message.function_call = function_call;
+			else {
+				if (function_call.name) choice.message.function_call.name = function_call.name;
+				if (function_call.arguments) {
+					(_c = choice.message.function_call).arguments ?? (_c.arguments = "");
+					choice.message.function_call.arguments += function_call.arguments;
+				}
+			}
+			if (content) {
+				choice.message.content = (choice.message.content || "") + content;
+				if (!choice.message.refusal && __classPrivateFieldGet(this, _ChatCompletionStream_instances, "m", _ChatCompletionStream_getAutoParseableResponseFormat).call(this)) choice.message.parsed = partialParse(choice.message.content);
+			}
+			if (tool_calls) {
+				if (!choice.message.tool_calls) choice.message.tool_calls = [];
+				for (const { index, id, type, function: fn, ...rest } of tool_calls) {
+					const tool_call = (_d = choice.message.tool_calls)[index] ?? (_d[index] = {});
+					Object.assign(tool_call, rest);
+					if (id) tool_call.id = id;
+					if (type) tool_call.type = type;
+					if (fn) tool_call.function ?? (tool_call.function = {
+						name: fn.name ?? "",
 						arguments: ""
-					}), a?.name && (s.function.name = a.name), a?.arguments && (s.function.arguments += a.arguments, un(_(this, Kn, "f"), s) && (s.function.parsed_arguments = Gn(s.function.arguments)));
+					});
+					if (fn?.name) tool_call.function.name = fn.name;
+					if (fn?.arguments) {
+						tool_call.function.arguments += fn.arguments;
+						if (shouldParseToolCall(__classPrivateFieldGet(this, _ChatCompletionStream_params, "f"), tool_call)) tool_call.function.parsed_arguments = partialParse(tool_call.function.arguments);
+					}
 				}
 			}
 		}
-		return a;
+		return snapshot;
 	}, Symbol.asyncIterator)]() {
-		let e = [], t = [], n = !1;
-		return this.on("chunk", (n) => {
-			let r = t.shift();
-			r ? r.resolve(n) : e.push(n);
-		}), this.on("end", () => {
-			n = !0;
-			for (let e of t) e.resolve(void 0);
-			t.length = 0;
-		}), this.on("abort", (e) => {
-			n = !0;
-			for (let n of t) n.reject(e);
-			t.length = 0;
-		}), this.on("error", (e) => {
-			n = !0;
-			for (let n of t) n.reject(e);
-			t.length = 0;
-		}), {
-			next: async () => e.length ? {
-				value: e.shift(),
-				done: !1
-			} : n ? {
-				value: void 0,
-				done: !0
-			} : new Promise((e, n) => t.push({
-				resolve: e,
-				reject: n
-			})).then((e) => e ? {
-				value: e,
-				done: !1
-			} : {
-				value: void 0,
-				done: !0
-			}),
-			return: async () => (this.abort(), {
-				value: void 0,
-				done: !0
-			})
+		const pushQueue = [];
+		const readQueue = [];
+		let done = false;
+		this.on("chunk", (chunk) => {
+			const reader = readQueue.shift();
+			if (reader) reader.resolve(chunk);
+			else pushQueue.push(chunk);
+		});
+		this.on("end", () => {
+			done = true;
+			for (const reader of readQueue) reader.resolve(void 0);
+			readQueue.length = 0;
+		});
+		this.on("abort", (err) => {
+			done = true;
+			for (const reader of readQueue) reader.reject(err);
+			readQueue.length = 0;
+		});
+		this.on("error", (err) => {
+			done = true;
+			for (const reader of readQueue) reader.reject(err);
+			readQueue.length = 0;
+		});
+		return {
+			next: async () => {
+				if (!pushQueue.length) {
+					if (done) return {
+						value: void 0,
+						done: true
+					};
+					return new Promise((resolve, reject) => readQueue.push({
+						resolve,
+						reject
+					})).then((chunk) => chunk ? {
+						value: chunk,
+						done: false
+					} : {
+						value: void 0,
+						done: true
+					});
+				}
+				return {
+					value: pushQueue.shift(),
+					done: false
+				};
+			},
+			return: async () => {
+				this.abort();
+				return {
+					value: void 0,
+					done: true
+				};
+			}
 		};
 	}
 	toReadableStream() {
-		return new yt(this[Symbol.asyncIterator].bind(this), this.controller).toReadableStream();
+		return new Stream(this[Symbol.asyncIterator].bind(this), this.controller).toReadableStream();
 	}
 };
-function ir(e, t) {
-	let { id: n, choices: r, created: i, model: a, system_fingerprint: o, ...s } = e;
-	return on({
-		...s,
-		id: n,
-		choices: r.map(({ message: t, finish_reason: n, index: r, logprobs: i, ...a }) => {
-			if (!n) throw new b(`missing finish_reason for choice ${r}`);
-			let { content: o = null, function_call: s, tool_calls: c, ...l } = t, u = t.role;
-			if (!u) throw new b(`missing role for choice ${r}`);
-			if (s) {
-				let { arguments: e, name: c } = s;
-				if (e == null) throw new b(`missing function_call.arguments for choice ${r}`);
-				if (!c) throw new b(`missing function_call.name for choice ${r}`);
+function finalizeChatCompletion(snapshot, params) {
+	const { id, choices, created, model, system_fingerprint, ...rest } = snapshot;
+	return maybeParseChatCompletion({
+		...rest,
+		id,
+		choices: choices.map(({ message, finish_reason, index, logprobs, ...choiceRest }) => {
+			if (!finish_reason) throw new OpenAIError(`missing finish_reason for choice ${index}`);
+			const { content = null, function_call, tool_calls, ...messageRest } = message;
+			const role = message.role;
+			if (!role) throw new OpenAIError(`missing role for choice ${index}`);
+			if (function_call) {
+				const { arguments: args, name } = function_call;
+				if (args == null) throw new OpenAIError(`missing function_call.arguments for choice ${index}`);
+				if (!name) throw new OpenAIError(`missing function_call.name for choice ${index}`);
 				return {
-					...a,
+					...choiceRest,
 					message: {
-						content: o,
+						content,
 						function_call: {
-							arguments: e,
-							name: c
+							arguments: args,
+							name
 						},
-						role: u,
-						refusal: t.refusal ?? null
+						role,
+						refusal: message.refusal ?? null
 					},
-					finish_reason: n,
-					index: r,
-					logprobs: i
+					finish_reason,
+					index,
+					logprobs
 				};
 			}
-			return c ? {
-				...a,
-				index: r,
-				finish_reason: n,
-				logprobs: i,
+			if (tool_calls) return {
+				...choiceRest,
+				index,
+				finish_reason,
+				logprobs,
 				message: {
-					...l,
-					role: u,
-					content: o,
-					refusal: t.refusal ?? null,
-					tool_calls: c.map((t, n) => {
-						let { function: i, type: a, id: o, ...s } = t, { arguments: c, name: l, ...u } = i || {};
-						if (o == null) throw new b(`missing choices[${r}].tool_calls[${n}].id\n${ar(e)}`);
-						if (a == null) throw new b(`missing choices[${r}].tool_calls[${n}].type\n${ar(e)}`);
-						if (l == null) throw new b(`missing choices[${r}].tool_calls[${n}].function.name\n${ar(e)}`);
-						if (c == null) throw new b(`missing choices[${r}].tool_calls[${n}].function.arguments\n${ar(e)}`);
+					...messageRest,
+					role,
+					content,
+					refusal: message.refusal ?? null,
+					tool_calls: tool_calls.map((tool_call, i) => {
+						const { function: fn, type, id, ...toolRest } = tool_call;
+						const { arguments: args, name, ...fnRest } = fn || {};
+						if (id == null) throw new OpenAIError(`missing choices[${index}].tool_calls[${i}].id\n${str(snapshot)}`);
+						if (type == null) throw new OpenAIError(`missing choices[${index}].tool_calls[${i}].type\n${str(snapshot)}`);
+						if (name == null) throw new OpenAIError(`missing choices[${index}].tool_calls[${i}].function.name\n${str(snapshot)}`);
+						if (args == null) throw new OpenAIError(`missing choices[${index}].tool_calls[${i}].function.arguments\n${str(snapshot)}`);
 						return {
-							...s,
-							id: o,
-							type: a,
+							...toolRest,
+							id,
+							type,
 							function: {
-								...u,
-								name: l,
-								arguments: c
+								...fnRest,
+								name,
+								arguments: args
 							}
 						};
 					})
 				}
-			} : {
-				...a,
+			};
+			return {
+				...choiceRest,
 				message: {
-					...l,
-					content: o,
-					role: u,
-					refusal: t.refusal ?? null
+					...messageRest,
+					content,
+					role,
+					refusal: message.refusal ?? null
 				},
-				finish_reason: n,
-				index: r,
-				logprobs: i
+				finish_reason,
+				index,
+				logprobs
 			};
 		}),
-		created: i,
-		model: a,
+		created,
+		model,
 		object: "chat.completion",
-		...o ? { system_fingerprint: o } : {}
-	}, t);
+		...system_fingerprint ? { system_fingerprint } : {}
+	}, params);
 }
-function ar(e) {
-	return JSON.stringify(e);
+function str(x) {
+	return JSON.stringify(x);
 }
 //#endregion
 //#region node_modules/openai/lib/ChatCompletionStreamingRunner.mjs
-var or = class e extends rr {
-	static fromReadableStream(t) {
-		let n = new e(null);
-		return n._run(() => n._fromReadableStream(t)), n;
+var ChatCompletionStreamingRunner = class ChatCompletionStreamingRunner extends ChatCompletionStream {
+	static fromReadableStream(stream) {
+		const runner = new ChatCompletionStreamingRunner(null);
+		runner._run(() => runner._fromReadableStream(stream));
+		return runner;
 	}
-	static runTools(t, n, r) {
-		let i = new e(n), a = {
-			...r,
+	static runTools(client, params, options) {
+		const runner = new ChatCompletionStreamingRunner(params);
+		const opts = {
+			...options,
 			headers: {
-				...r?.headers,
+				...options?.headers,
 				"X-Stainless-Helper-Method": "runTools"
 			}
 		};
-		return i._run(() => i._runTools(t, n, a)), i;
+		runner._run(() => runner._runTools(client, params, opts));
+		return runner;
 	}
-}, sr = class extends P {
+};
+//#endregion
+//#region node_modules/openai/resources/chat/completions/completions.mjs
+/**
+* Given a list of messages comprising a conversation, the model will return a response.
+*/
+var Completions$1 = class extends APIResource {
 	constructor() {
-		super(...arguments), this.messages = new tn(this._client);
+		super(...arguments);
+		this.messages = new Messages$1(this._client);
 	}
-	create(e, t) {
+	create(body, options) {
 		return this._client.post("/chat/completions", {
-			body: e,
-			...t,
-			stream: e.stream ?? !1,
-			__security: { bearerAuth: !0 }
+			body,
+			...options,
+			stream: body.stream ?? false,
+			__security: { bearerAuth: true }
 		});
 	}
-	retrieve(e, t) {
-		return this._client.get(F`/chat/completions/${e}`, {
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* Get a stored chat completion. Only Chat Completions that have been created with
+	* the `store` parameter set to `true` will be returned.
+	*
+	* @example
+	* ```ts
+	* const chatCompletion =
+	*   await client.chat.completions.retrieve('completion_id');
+	* ```
+	*/
+	retrieve(completionID, options) {
+		return this._client.get(path$2`/chat/completions/${completionID}`, {
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	update(e, t, n) {
-		return this._client.post(F`/chat/completions/${e}`, {
-			body: t,
-			...n,
-			__security: { bearerAuth: !0 }
+	/**
+	* Modify a stored chat completion. Only Chat Completions that have been created
+	* with the `store` parameter set to `true` can be modified. Currently, the only
+	* supported modification is to update the `metadata` field.
+	*
+	* @example
+	* ```ts
+	* const chatCompletion = await client.chat.completions.update(
+	*   'completion_id',
+	*   { metadata: { foo: 'string' } },
+	* );
+	* ```
+	*/
+	update(completionID, body, options) {
+		return this._client.post(path$2`/chat/completions/${completionID}`, {
+			body,
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	list(e = {}, t) {
-		return this._client.getAPIList("/chat/completions", A, {
-			query: e,
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* List stored Chat Completions. Only Chat Completions that have been stored with
+	* the `store` parameter set to `true` will be returned.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const chatCompletion of client.chat.completions.list()) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(query = {}, options) {
+		return this._client.getAPIList("/chat/completions", CursorPage, {
+			query,
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	delete(e, t) {
-		return this._client.delete(F`/chat/completions/${e}`, {
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* Delete a stored chat completion. Only Chat Completions that have been created
+	* with the `store` parameter set to `true` can be deleted.
+	*
+	* @example
+	* ```ts
+	* const chatCompletionDeleted =
+	*   await client.chat.completions.delete('completion_id');
+	* ```
+	*/
+	delete(completionID, options) {
+		return this._client.delete(path$2`/chat/completions/${completionID}`, {
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	parse(e, t) {
-		return pn(e.tools), this._client.chat.completions.create(e, {
-			...t,
+	parse(body, options) {
+		validateInputTools(body.tools);
+		return this._client.chat.completions.create(body, {
+			...options,
 			headers: {
-				...t?.headers,
+				...options?.headers,
 				"X-Stainless-Helper-Method": "chat.completions.parse"
 			}
-		})._thenUnwrap((t) => sn(t, e));
+		})._thenUnwrap((completion) => parseChatCompletion(completion, body));
 	}
-	runTools(e, t) {
-		return e.stream ? or.runTools(this._client, e, t) : Bn.runTools(this._client, e, t);
+	runTools(body, options) {
+		if (body.stream) return ChatCompletionStreamingRunner.runTools(this._client, body, options);
+		return ChatCompletionRunner.runTools(this._client, body, options);
 	}
-	stream(e, t) {
-		return rr.createChatCompletion(this._client, e, t);
+	/**
+	* Creates a chat completion stream
+	*/
+	stream(body, options) {
+		return ChatCompletionStream.createChatCompletion(this._client, body, options);
 	}
 };
-sr.Messages = tn;
+Completions$1.Messages = Messages$1;
 //#endregion
 //#region node_modules/openai/resources/chat/chat.mjs
-var cr = class extends P {
+var Chat = class extends APIResource {
 	constructor() {
-		super(...arguments), this.completions = new sr(this._client);
+		super(...arguments);
+		this.completions = new Completions$1(this._client);
 	}
 };
-cr.Completions = sr;
+Chat.Completions = Completions$1;
 //#endregion
 //#region node_modules/openai/resources/admin/organization/admin-api-keys.mjs
-var lr = class extends P {
-	create(e, t) {
+var AdminAPIKeys = class extends APIResource {
+	/**
+	* Create an organization admin API key
+	*
+	* @example
+	* ```ts
+	* const adminAPIKey =
+	*   await client.admin.organization.adminAPIKeys.create({
+	*     name: 'New Admin Key',
+	*   });
+	* ```
+	*/
+	create(body, options) {
 		return this._client.post("/organization/admin_api_keys", {
-			body: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
 	}
-	retrieve(e, t) {
-		return this._client.get(F`/organization/admin_api_keys/${e}`, {
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
+	/**
+	* Retrieve a single organization API key
+	*
+	* @example
+	* ```ts
+	* const adminAPIKey =
+	*   await client.admin.organization.adminAPIKeys.retrieve(
+	*     'key_id',
+	*   );
+	* ```
+	*/
+	retrieve(keyID, options) {
+		return this._client.get(path$2`/organization/admin_api_keys/${keyID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
 	}
-	list(e = {}, t) {
-		return this._client.getAPIList("/organization/admin_api_keys", A, {
-			query: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
+	/**
+	* List organization API keys
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const adminAPIKey of client.admin.organization.adminAPIKeys.list()) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(query = {}, options) {
+		return this._client.getAPIList("/organization/admin_api_keys", CursorPage, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
 	}
-	delete(e, t) {
-		return this._client.delete(F`/organization/admin_api_keys/${e}`, {
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-}, ur = class extends P {
-	list(e = {}, t) {
-		return this._client.getAPIList("/organization/audit_logs", j, {
-			query: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-}, dr = class extends P {
-	create(e, t) {
-		return this._client.post("/organization/certificates", {
-			body: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	retrieve(e, t = {}, n) {
-		return this._client.get(F`/organization/certificates/${e}`, {
-			query: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	update(e, t, n) {
-		return this._client.post(F`/organization/certificates/${e}`, {
-			body: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	list(e = {}, t) {
-		return this._client.getAPIList("/organization/certificates", j, {
-			query: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	delete(e, t) {
-		return this._client.delete(F`/organization/certificates/${e}`, {
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	activate(e, t) {
-		return this._client.getAPIList("/organization/certificates/activate", jt, {
-			body: e,
-			method: "post",
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	deactivate(e, t) {
-		return this._client.getAPIList("/organization/certificates/deactivate", jt, {
-			body: e,
-			method: "post",
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-}, fr = class extends P {
-	retrieve(e) {
-		return this._client.get("/organization/data_retention", {
-			...e,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	update(e, t) {
-		return this._client.post("/organization/data_retention", {
-			body: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-}, pr = class extends P {
-	create(e, t) {
-		return this._client.post("/organization/invites", {
-			body: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	retrieve(e, t) {
-		return this._client.get(F`/organization/invites/${e}`, {
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	list(e = {}, t) {
-		return this._client.getAPIList("/organization/invites", j, {
-			query: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	delete(e, t) {
-		return this._client.delete(F`/organization/invites/${e}`, {
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-}, mr = class extends P {
-	create(e, t) {
-		return this._client.post("/organization/roles", {
-			body: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	retrieve(e, t) {
-		return this._client.get(F`/organization/roles/${e}`, {
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	update(e, t, n) {
-		return this._client.post(F`/organization/roles/${e}`, {
-			body: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	list(e = {}, t) {
-		return this._client.getAPIList("/organization/roles", M, {
-			query: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	delete(e, t) {
-		return this._client.delete(F`/organization/roles/${e}`, {
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-}, hr = class extends P {
-	create(e, t) {
-		return this._client.post("/organization/spend_alerts", {
-			body: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	update(e, t, n) {
-		return this._client.post(F`/organization/spend_alerts/${e}`, {
-			body: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	list(e = {}, t) {
-		return this._client.getAPIList("/organization/spend_alerts", j, {
-			query: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	delete(e, t) {
-		return this._client.delete(F`/organization/spend_alerts/${e}`, {
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-}, gr = class extends P {
-	audioSpeeches(e, t) {
-		return this._client.get("/organization/usage/audio_speeches", {
-			query: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	audioTranscriptions(e, t) {
-		return this._client.get("/organization/usage/audio_transcriptions", {
-			query: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	codeInterpreterSessions(e, t) {
-		return this._client.get("/organization/usage/code_interpreter_sessions", {
-			query: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	completions(e, t) {
-		return this._client.get("/organization/usage/completions", {
-			query: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	costs(e, t) {
-		return this._client.get("/organization/costs", {
-			query: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	embeddings(e, t) {
-		return this._client.get("/organization/usage/embeddings", {
-			query: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	fileSearchCalls(e, t) {
-		return this._client.get("/organization/usage/file_search_calls", {
-			query: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	images(e, t) {
-		return this._client.get("/organization/usage/images", {
-			query: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	moderations(e, t) {
-		return this._client.get("/organization/usage/moderations", {
-			query: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	vectorStores(e, t) {
-		return this._client.get("/organization/usage/vector_stores", {
-			query: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	webSearchCalls(e, t) {
-		return this._client.get("/organization/usage/web_search_calls", {
-			query: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-}, _r = class extends P {
-	create(e, t, n) {
-		return this._client.post(F`/organization/groups/${e}/roles`, {
-			body: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	retrieve(e, t, n) {
-		let { group_id: r } = t;
-		return this._client.get(F`/organization/groups/${r}/roles/${e}`, {
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	list(e, t = {}, n) {
-		return this._client.getAPIList(F`/organization/groups/${e}/roles`, M, {
-			query: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	delete(e, t, n) {
-		let { group_id: r } = t;
-		return this._client.delete(F`/organization/groups/${r}/roles/${e}`, {
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-}, vr = class extends P {
-	create(e, t, n) {
-		return this._client.post(F`/organization/groups/${e}/users`, {
-			body: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	retrieve(e, t, n) {
-		let { group_id: r } = t;
-		return this._client.get(F`/organization/groups/${r}/users/${e}`, {
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	list(e, t = {}, n) {
-		return this._client.getAPIList(F`/organization/groups/${e}/users`, M, {
-			query: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	delete(e, t, n) {
-		let { group_id: r } = t;
-		return this._client.delete(F`/organization/groups/${r}/users/${e}`, {
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-}, yr = class extends P {
-	constructor() {
-		super(...arguments), this.users = new vr(this._client), this.roles = new _r(this._client);
-	}
-	create(e, t) {
-		return this._client.post("/organization/groups", {
-			body: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	retrieve(e, t) {
-		return this._client.get(F`/organization/groups/${e}`, {
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	update(e, t, n) {
-		return this._client.post(F`/organization/groups/${e}`, {
-			body: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	list(e = {}, t) {
-		return this._client.getAPIList("/organization/groups", M, {
-			query: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	delete(e, t) {
-		return this._client.delete(F`/organization/groups/${e}`, {
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
+	/**
+	* Delete an organization admin API key
+	*
+	* @example
+	* ```ts
+	* const adminAPIKey =
+	*   await client.admin.organization.adminAPIKeys.delete(
+	*     'key_id',
+	*   );
+	* ```
+	*/
+	delete(keyID, options) {
+		return this._client.delete(path$2`/organization/admin_api_keys/${keyID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
 	}
 };
-yr.Users = vr, yr.Roles = _r;
+//#endregion
+//#region node_modules/openai/resources/admin/organization/audit-logs.mjs
+/**
+* List user actions and configuration changes within this organization.
+*/
+var AuditLogs = class extends APIResource {
+	/**
+	* List user actions and configuration changes within this organization.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const auditLogListResponse of client.admin.organization.auditLogs.list()) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(query = {}, options) {
+		return this._client.getAPIList("/organization/audit_logs", ConversationCursorPage, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/admin/organization/certificates.mjs
+var Certificates$1 = class extends APIResource {
+	/**
+	* Upload a certificate to the organization. This does **not** automatically
+	* activate the certificate.
+	*
+	* Organizations can upload up to 50 certificates.
+	*
+	* @example
+	* ```ts
+	* const certificate =
+	*   await client.admin.organization.certificates.create({
+	*     certificate: 'certificate',
+	*   });
+	* ```
+	*/
+	create(body, options) {
+		return this._client.post("/organization/certificates", {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Get a certificate that has been uploaded to the organization.
+	*
+	* You can get a certificate regardless of whether it is active or not.
+	*
+	* @example
+	* ```ts
+	* const certificate =
+	*   await client.admin.organization.certificates.retrieve(
+	*     'certificate_id',
+	*   );
+	* ```
+	*/
+	retrieve(certificateID, query = {}, options) {
+		return this._client.get(path$2`/organization/certificates/${certificateID}`, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Modify a certificate. Note that only the name can be modified.
+	*
+	* @example
+	* ```ts
+	* const certificate =
+	*   await client.admin.organization.certificates.update(
+	*     'certificate_id',
+	*   );
+	* ```
+	*/
+	update(certificateID, body, options) {
+		return this._client.post(path$2`/organization/certificates/${certificateID}`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* List uploaded certificates for this organization.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const certificateListResponse of client.admin.organization.certificates.list()) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(query = {}, options) {
+		return this._client.getAPIList("/organization/certificates", ConversationCursorPage, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Delete a certificate from the organization.
+	*
+	* The certificate must be inactive for the organization and all projects.
+	*
+	* @example
+	* ```ts
+	* const certificate =
+	*   await client.admin.organization.certificates.delete(
+	*     'certificate_id',
+	*   );
+	* ```
+	*/
+	delete(certificateID, options) {
+		return this._client.delete(path$2`/organization/certificates/${certificateID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Activate certificates at the organization level.
+	*
+	* You can atomically and idempotently activate up to 10 certificates at a time.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const certificateActivateResponse of client.admin.organization.certificates.activate(
+	*   { certificate_ids: ['cert_abc'] },
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	activate(body, options) {
+		return this._client.getAPIList("/organization/certificates/activate", Page, {
+			body,
+			method: "post",
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Deactivate certificates at the organization level.
+	*
+	* You can atomically and idempotently deactivate up to 10 certificates at a time.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const certificateDeactivateResponse of client.admin.organization.certificates.deactivate(
+	*   { certificate_ids: ['cert_abc'] },
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	deactivate(body, options) {
+		return this._client.getAPIList("/organization/certificates/deactivate", Page, {
+			body,
+			method: "post",
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/admin/organization/data-retention.mjs
+var DataRetention$1 = class extends APIResource {
+	/**
+	* Retrieves organization data retention controls.
+	*
+	* @example
+	* ```ts
+	* const organizationDataRetention =
+	*   await client.admin.organization.dataRetention.retrieve();
+	* ```
+	*/
+	retrieve(options) {
+		return this._client.get("/organization/data_retention", {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Updates organization data retention controls.
+	*
+	* @example
+	* ```ts
+	* const organizationDataRetention =
+	*   await client.admin.organization.dataRetention.update({
+	*     retention_type: 'zero_data_retention',
+	*   });
+	* ```
+	*/
+	update(body, options) {
+		return this._client.post("/organization/data_retention", {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/admin/organization/invites.mjs
+var Invites = class extends APIResource {
+	/**
+	* Create an invite for a user to the organization. The invite must be accepted by
+	* the user before they have access to the organization.
+	*
+	* @example
+	* ```ts
+	* const invite =
+	*   await client.admin.organization.invites.create({
+	*     email: 'email',
+	*     role: 'reader',
+	*   });
+	* ```
+	*/
+	create(body, options) {
+		return this._client.post("/organization/invites", {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Retrieves an invite.
+	*
+	* @example
+	* ```ts
+	* const invite =
+	*   await client.admin.organization.invites.retrieve(
+	*     'invite_id',
+	*   );
+	* ```
+	*/
+	retrieve(inviteID, options) {
+		return this._client.get(path$2`/organization/invites/${inviteID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Returns a list of invites in the organization.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const invite of client.admin.organization.invites.list()) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(query = {}, options) {
+		return this._client.getAPIList("/organization/invites", ConversationCursorPage, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Delete an invite. If the invite has already been accepted, it cannot be deleted.
+	*
+	* @example
+	* ```ts
+	* const invite =
+	*   await client.admin.organization.invites.delete(
+	*     'invite_id',
+	*   );
+	* ```
+	*/
+	delete(inviteID, options) {
+		return this._client.delete(path$2`/organization/invites/${inviteID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/admin/organization/roles.mjs
+var Roles$5 = class extends APIResource {
+	/**
+	* Creates a custom role for the organization.
+	*
+	* @example
+	* ```ts
+	* const role = await client.admin.organization.roles.create({
+	*   permissions: ['string'],
+	*   role_name: 'role_name',
+	* });
+	* ```
+	*/
+	create(body, options) {
+		return this._client.post("/organization/roles", {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Retrieves an organization role.
+	*
+	* @example
+	* ```ts
+	* const role = await client.admin.organization.roles.retrieve(
+	*   'role_id',
+	* );
+	* ```
+	*/
+	retrieve(roleID, options) {
+		return this._client.get(path$2`/organization/roles/${roleID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Updates an existing organization role.
+	*
+	* @example
+	* ```ts
+	* const role = await client.admin.organization.roles.update(
+	*   'role_id',
+	* );
+	* ```
+	*/
+	update(roleID, body, options) {
+		return this._client.post(path$2`/organization/roles/${roleID}`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Lists the roles configured for the organization.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const role of client.admin.organization.roles.list()) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(query = {}, options) {
+		return this._client.getAPIList("/organization/roles", NextCursorPage, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Deletes a custom role from the organization.
+	*
+	* @example
+	* ```ts
+	* const role = await client.admin.organization.roles.delete(
+	*   'role_id',
+	* );
+	* ```
+	*/
+	delete(roleID, options) {
+		return this._client.delete(path$2`/organization/roles/${roleID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/admin/organization/spend-alerts.mjs
+var SpendAlerts$1 = class extends APIResource {
+	/**
+	* Creates an organization spend alert.
+	*
+	* @example
+	* ```ts
+	* const organizationSpendAlert =
+	*   await client.admin.organization.spendAlerts.create({
+	*     currency: 'USD',
+	*     interval: 'month',
+	*     notification_channel: {
+	*       recipients: ['string'],
+	*       type: 'email',
+	*     },
+	*     threshold_amount: 0,
+	*   });
+	* ```
+	*/
+	create(body, options) {
+		return this._client.post("/organization/spend_alerts", {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Updates an organization spend alert.
+	*
+	* @example
+	* ```ts
+	* const organizationSpendAlert =
+	*   await client.admin.organization.spendAlerts.update(
+	*     'alert_id',
+	*     {
+	*       currency: 'USD',
+	*       interval: 'month',
+	*       notification_channel: {
+	*         recipients: ['string'],
+	*         type: 'email',
+	*       },
+	*       threshold_amount: 0,
+	*     },
+	*   );
+	* ```
+	*/
+	update(alertID, body, options) {
+		return this._client.post(path$2`/organization/spend_alerts/${alertID}`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Lists organization spend alerts.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const organizationSpendAlert of client.admin.organization.spendAlerts.list()) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(query = {}, options) {
+		return this._client.getAPIList("/organization/spend_alerts", ConversationCursorPage, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Deletes an organization spend alert.
+	*
+	* @example
+	* ```ts
+	* const organizationSpendAlertDeleted =
+	*   await client.admin.organization.spendAlerts.delete(
+	*     'alert_id',
+	*   );
+	* ```
+	*/
+	delete(alertID, options) {
+		return this._client.delete(path$2`/organization/spend_alerts/${alertID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/admin/organization/usage.mjs
+var Usage = class extends APIResource {
+	/**
+	* Get audio speeches usage details for the organization.
+	*
+	* @example
+	* ```ts
+	* const response =
+	*   await client.admin.organization.usage.audioSpeeches({
+	*     start_time: 0,
+	*   });
+	* ```
+	*/
+	audioSpeeches(query, options) {
+		return this._client.get("/organization/usage/audio_speeches", {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Get audio transcriptions usage details for the organization.
+	*
+	* @example
+	* ```ts
+	* const response =
+	*   await client.admin.organization.usage.audioTranscriptions(
+	*     { start_time: 0 },
+	*   );
+	* ```
+	*/
+	audioTranscriptions(query, options) {
+		return this._client.get("/organization/usage/audio_transcriptions", {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Get code interpreter sessions usage details for the organization.
+	*
+	* @example
+	* ```ts
+	* const response =
+	*   await client.admin.organization.usage.codeInterpreterSessions(
+	*     { start_time: 0 },
+	*   );
+	* ```
+	*/
+	codeInterpreterSessions(query, options) {
+		return this._client.get("/organization/usage/code_interpreter_sessions", {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Get completions usage details for the organization.
+	*
+	* @example
+	* ```ts
+	* const response =
+	*   await client.admin.organization.usage.completions({
+	*     start_time: 0,
+	*   });
+	* ```
+	*/
+	completions(query, options) {
+		return this._client.get("/organization/usage/completions", {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Get costs details for the organization.
+	*
+	* @example
+	* ```ts
+	* const response =
+	*   await client.admin.organization.usage.costs({
+	*     start_time: 0,
+	*   });
+	* ```
+	*/
+	costs(query, options) {
+		return this._client.get("/organization/costs", {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Get embeddings usage details for the organization.
+	*
+	* @example
+	* ```ts
+	* const response =
+	*   await client.admin.organization.usage.embeddings({
+	*     start_time: 0,
+	*   });
+	* ```
+	*/
+	embeddings(query, options) {
+		return this._client.get("/organization/usage/embeddings", {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Get file search calls usage details for the organization.
+	*
+	* @example
+	* ```ts
+	* const response =
+	*   await client.admin.organization.usage.fileSearchCalls({
+	*     start_time: 0,
+	*   });
+	* ```
+	*/
+	fileSearchCalls(query, options) {
+		return this._client.get("/organization/usage/file_search_calls", {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Get images usage details for the organization.
+	*
+	* @example
+	* ```ts
+	* const response =
+	*   await client.admin.organization.usage.images({
+	*     start_time: 0,
+	*   });
+	* ```
+	*/
+	images(query, options) {
+		return this._client.get("/organization/usage/images", {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Get moderations usage details for the organization.
+	*
+	* @example
+	* ```ts
+	* const response =
+	*   await client.admin.organization.usage.moderations({
+	*     start_time: 0,
+	*   });
+	* ```
+	*/
+	moderations(query, options) {
+		return this._client.get("/organization/usage/moderations", {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Get vector stores usage details for the organization.
+	*
+	* @example
+	* ```ts
+	* const response =
+	*   await client.admin.organization.usage.vectorStores({
+	*     start_time: 0,
+	*   });
+	* ```
+	*/
+	vectorStores(query, options) {
+		return this._client.get("/organization/usage/vector_stores", {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Get web search calls usage details for the organization.
+	*
+	* @example
+	* ```ts
+	* const response =
+	*   await client.admin.organization.usage.webSearchCalls({
+	*     start_time: 0,
+	*   });
+	* ```
+	*/
+	webSearchCalls(query, options) {
+		return this._client.get("/organization/usage/web_search_calls", {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/admin/organization/groups/roles.mjs
+var Roles$4 = class extends APIResource {
+	/**
+	* Assigns an organization role to a group within the organization.
+	*
+	* @example
+	* ```ts
+	* const role =
+	*   await client.admin.organization.groups.roles.create(
+	*     'group_id',
+	*     { role_id: 'role_id' },
+	*   );
+	* ```
+	*/
+	create(groupID, body, options) {
+		return this._client.post(path$2`/organization/groups/${groupID}/roles`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Retrieves an organization role assigned to a group.
+	*
+	* @example
+	* ```ts
+	* const role =
+	*   await client.admin.organization.groups.roles.retrieve(
+	*     'role_id',
+	*     { group_id: 'group_id' },
+	*   );
+	* ```
+	*/
+	retrieve(roleID, params, options) {
+		const { group_id } = params;
+		return this._client.get(path$2`/organization/groups/${group_id}/roles/${roleID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Lists the organization roles assigned to a group within the organization.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const roleListResponse of client.admin.organization.groups.roles.list(
+	*   'group_id',
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(groupID, query = {}, options) {
+		return this._client.getAPIList(path$2`/organization/groups/${groupID}/roles`, NextCursorPage, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Unassigns an organization role from a group within the organization.
+	*
+	* @example
+	* ```ts
+	* const role =
+	*   await client.admin.organization.groups.roles.delete(
+	*     'role_id',
+	*     { group_id: 'group_id' },
+	*   );
+	* ```
+	*/
+	delete(roleID, params, options) {
+		const { group_id } = params;
+		return this._client.delete(path$2`/organization/groups/${group_id}/roles/${roleID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/admin/organization/groups/users.mjs
+var Users$2 = class extends APIResource {
+	/**
+	* Adds a user to a group.
+	*
+	* @example
+	* ```ts
+	* const user =
+	*   await client.admin.organization.groups.users.create(
+	*     'group_id',
+	*     { user_id: 'user_id' },
+	*   );
+	* ```
+	*/
+	create(groupID, body, options) {
+		return this._client.post(path$2`/organization/groups/${groupID}/users`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Retrieves a user in a group.
+	*
+	* @example
+	* ```ts
+	* const user =
+	*   await client.admin.organization.groups.users.retrieve(
+	*     'user_id',
+	*     { group_id: 'group_id' },
+	*   );
+	* ```
+	*/
+	retrieve(userID, params, options) {
+		const { group_id } = params;
+		return this._client.get(path$2`/organization/groups/${group_id}/users/${userID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Lists the users assigned to a group.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const organizationGroupUser of client.admin.organization.groups.users.list(
+	*   'group_id',
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(groupID, query = {}, options) {
+		return this._client.getAPIList(path$2`/organization/groups/${groupID}/users`, NextCursorPage, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Removes a user from a group.
+	*
+	* @example
+	* ```ts
+	* const user =
+	*   await client.admin.organization.groups.users.delete(
+	*     'user_id',
+	*     { group_id: 'group_id' },
+	*   );
+	* ```
+	*/
+	delete(userID, params, options) {
+		const { group_id } = params;
+		return this._client.delete(path$2`/organization/groups/${group_id}/users/${userID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/admin/organization/groups/groups.mjs
+var Groups$1 = class extends APIResource {
+	constructor() {
+		super(...arguments);
+		this.users = new Users$2(this._client);
+		this.roles = new Roles$4(this._client);
+	}
+	/**
+	* Creates a new group in the organization.
+	*
+	* @example
+	* ```ts
+	* const group = await client.admin.organization.groups.create(
+	*   { name: 'x' },
+	* );
+	* ```
+	*/
+	create(body, options) {
+		return this._client.post("/organization/groups", {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Retrieves a group.
+	*
+	* @example
+	* ```ts
+	* const group =
+	*   await client.admin.organization.groups.retrieve(
+	*     'group_id',
+	*   );
+	* ```
+	*/
+	retrieve(groupID, options) {
+		return this._client.get(path$2`/organization/groups/${groupID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Updates a group's information.
+	*
+	* @example
+	* ```ts
+	* const group = await client.admin.organization.groups.update(
+	*   'group_id',
+	*   { name: 'x' },
+	* );
+	* ```
+	*/
+	update(groupID, body, options) {
+		return this._client.post(path$2`/organization/groups/${groupID}`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Lists all groups in the organization.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const group of client.admin.organization.groups.list()) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(query = {}, options) {
+		return this._client.getAPIList("/organization/groups", NextCursorPage, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Deletes a group from the organization.
+	*
+	* @example
+	* ```ts
+	* const group = await client.admin.organization.groups.delete(
+	*   'group_id',
+	* );
+	* ```
+	*/
+	delete(groupID, options) {
+		return this._client.delete(path$2`/organization/groups/${groupID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+};
+Groups$1.Users = Users$2;
+Groups$1.Roles = Roles$4;
 //#endregion
 //#region node_modules/openai/resources/admin/organization/projects/api-keys.mjs
-var br = class extends P {
-	retrieve(e, t, n) {
-		let { project_id: r } = t;
-		return this._client.get(F`/organization/projects/${r}/api_keys/${e}`, {
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
+var APIKeys = class extends APIResource {
+	/**
+	* Retrieves an API key in the project.
+	*
+	* @example
+	* ```ts
+	* const projectAPIKey =
+	*   await client.admin.organization.projects.apiKeys.retrieve(
+	*     'api_key_id',
+	*     { project_id: 'project_id' },
+	*   );
+	* ```
+	*/
+	retrieve(apiKeyID, params, options) {
+		const { project_id } = params;
+		return this._client.get(path$2`/organization/projects/${project_id}/api_keys/${apiKeyID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
 	}
-	list(e, t = {}, n) {
-		return this._client.getAPIList(F`/organization/projects/${e}/api_keys`, j, {
-			query: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
+	/**
+	* Returns a list of API keys in the project.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const projectAPIKey of client.admin.organization.projects.apiKeys.list(
+	*   'project_id',
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(projectID, query = {}, options) {
+		return this._client.getAPIList(path$2`/organization/projects/${projectID}/api_keys`, ConversationCursorPage, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
 	}
-	delete(e, t, n) {
-		let { project_id: r } = t;
-		return this._client.delete(F`/organization/projects/${r}/api_keys/${e}`, {
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-}, xr = class extends P {
-	list(e, t = {}, n) {
-		return this._client.getAPIList(F`/organization/projects/${e}/certificates`, j, {
-			query: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	activate(e, t, n) {
-		return this._client.getAPIList(F`/organization/projects/${e}/certificates/activate`, jt, {
-			body: t,
-			method: "post",
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	deactivate(e, t, n) {
-		return this._client.getAPIList(F`/organization/projects/${e}/certificates/deactivate`, jt, {
-			body: t,
-			method: "post",
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-}, Sr = class extends P {
-	retrieve(e, t) {
-		return this._client.get(F`/organization/projects/${e}/data_retention`, {
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	update(e, t, n) {
-		return this._client.post(F`/organization/projects/${e}/data_retention`, {
-			body: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-}, Cr = class extends P {
-	retrieve(e, t) {
-		return this._client.get(F`/organization/projects/${e}/hosted_tool_permissions`, {
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	update(e, t, n) {
-		return this._client.post(F`/organization/projects/${e}/hosted_tool_permissions`, {
-			body: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-}, wr = class extends P {
-	retrieve(e, t) {
-		return this._client.get(F`/organization/projects/${e}/model_permissions`, {
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	update(e, t, n) {
-		return this._client.post(F`/organization/projects/${e}/model_permissions`, {
-			body: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	delete(e, t) {
-		return this._client.delete(F`/organization/projects/${e}/model_permissions`, {
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-}, Tr = class extends P {
-	listRateLimits(e, t = {}, n) {
-		return this._client.getAPIList(F`/organization/projects/${e}/rate_limits`, j, {
-			query: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	updateRateLimit(e, t, n) {
-		let { project_id: r, ...i } = t;
-		return this._client.post(F`/organization/projects/${r}/rate_limits/${e}`, {
-			body: i,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-}, Er = class extends P {
-	create(e, t, n) {
-		return this._client.post(F`/projects/${e}/roles`, {
-			body: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	retrieve(e, t, n) {
-		let { project_id: r } = t;
-		return this._client.get(F`/projects/${r}/roles/${e}`, {
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	update(e, t, n) {
-		let { project_id: r, ...i } = t;
-		return this._client.post(F`/projects/${r}/roles/${e}`, {
-			body: i,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	list(e, t = {}, n) {
-		return this._client.getAPIList(F`/projects/${e}/roles`, M, {
-			query: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	delete(e, t, n) {
-		let { project_id: r } = t;
-		return this._client.delete(F`/projects/${r}/roles/${e}`, {
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-}, Dr = class extends P {
-	create(e, t, n) {
-		return this._client.post(F`/organization/projects/${e}/service_accounts`, {
-			body: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	retrieve(e, t, n) {
-		let { project_id: r } = t;
-		return this._client.get(F`/organization/projects/${r}/service_accounts/${e}`, {
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	update(e, t, n) {
-		let { project_id: r, ...i } = t;
-		return this._client.post(F`/organization/projects/${r}/service_accounts/${e}`, {
-			body: i,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	list(e, t = {}, n) {
-		return this._client.getAPIList(F`/organization/projects/${e}/service_accounts`, j, {
-			query: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	delete(e, t, n) {
-		let { project_id: r } = t;
-		return this._client.delete(F`/organization/projects/${r}/service_accounts/${e}`, {
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-}, Or = class extends P {
-	create(e, t, n) {
-		return this._client.post(F`/organization/projects/${e}/spend_alerts`, {
-			body: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	update(e, t, n) {
-		let { project_id: r, ...i } = t;
-		return this._client.post(F`/organization/projects/${r}/spend_alerts/${e}`, {
-			body: i,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	list(e, t = {}, n) {
-		return this._client.getAPIList(F`/organization/projects/${e}/spend_alerts`, j, {
-			query: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	delete(e, t, n) {
-		let { project_id: r } = t;
-		return this._client.delete(F`/organization/projects/${r}/spend_alerts/${e}`, {
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-}, kr = class extends P {
-	create(e, t, n) {
-		let { project_id: r, ...i } = t;
-		return this._client.post(F`/projects/${r}/groups/${e}/roles`, {
-			body: i,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	retrieve(e, t, n) {
-		let { project_id: r, group_id: i } = t;
-		return this._client.get(F`/projects/${r}/groups/${i}/roles/${e}`, {
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	list(e, t, n) {
-		let { project_id: r, ...i } = t;
-		return this._client.getAPIList(F`/projects/${r}/groups/${e}/roles`, M, {
-			query: i,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	delete(e, t, n) {
-		let { project_id: r, group_id: i } = t;
-		return this._client.delete(F`/projects/${r}/groups/${i}/roles/${e}`, {
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-}, Ar = class extends P {
-	constructor() {
-		super(...arguments), this.roles = new kr(this._client);
-	}
-	create(e, t, n) {
-		return this._client.post(F`/organization/projects/${e}/groups`, {
-			body: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	retrieve(e, t, n) {
-		let { project_id: r, ...i } = t;
-		return this._client.get(F`/organization/projects/${r}/groups/${e}`, {
-			query: i,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	list(e, t = {}, n) {
-		return this._client.getAPIList(F`/organization/projects/${e}/groups`, M, {
-			query: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	delete(e, t, n) {
-		let { project_id: r } = t;
-		return this._client.delete(F`/organization/projects/${r}/groups/${e}`, {
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
+	/**
+	* Deletes an API key from the project.
+	*
+	* Returns confirmation of the key deletion, or an error if the key belonged to a
+	* service account.
+	*
+	* @example
+	* ```ts
+	* const apiKey =
+	*   await client.admin.organization.projects.apiKeys.delete(
+	*     'api_key_id',
+	*     { project_id: 'project_id' },
+	*   );
+	* ```
+	*/
+	delete(apiKeyID, params, options) {
+		const { project_id } = params;
+		return this._client.delete(path$2`/organization/projects/${project_id}/api_keys/${apiKeyID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
 	}
 };
-Ar.Roles = kr;
+//#endregion
+//#region node_modules/openai/resources/admin/organization/projects/certificates.mjs
+var Certificates = class extends APIResource {
+	/**
+	* List certificates for this project.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const certificateListResponse of client.admin.organization.projects.certificates.list(
+	*   'project_id',
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(projectID, query = {}, options) {
+		return this._client.getAPIList(path$2`/organization/projects/${projectID}/certificates`, ConversationCursorPage, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Activate certificates at the project level.
+	*
+	* You can atomically and idempotently activate up to 10 certificates at a time.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const certificateActivateResponse of client.admin.organization.projects.certificates.activate(
+	*   'project_id',
+	*   { certificate_ids: ['cert_abc'] },
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	activate(projectID, body, options) {
+		return this._client.getAPIList(path$2`/organization/projects/${projectID}/certificates/activate`, Page, {
+			body,
+			method: "post",
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Deactivate certificates at the project level. You can atomically and
+	* idempotently deactivate up to 10 certificates at a time.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const certificateDeactivateResponse of client.admin.organization.projects.certificates.deactivate(
+	*   'project_id',
+	*   { certificate_ids: ['cert_abc'] },
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	deactivate(projectID, body, options) {
+		return this._client.getAPIList(path$2`/organization/projects/${projectID}/certificates/deactivate`, Page, {
+			body,
+			method: "post",
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/admin/organization/projects/data-retention.mjs
+var DataRetention = class extends APIResource {
+	/**
+	* Retrieves project data retention controls.
+	*
+	* @example
+	* ```ts
+	* const projectDataRetention =
+	*   await client.admin.organization.projects.dataRetention.retrieve(
+	*     'project_id',
+	*   );
+	* ```
+	*/
+	retrieve(projectID, options) {
+		return this._client.get(path$2`/organization/projects/${projectID}/data_retention`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Updates project data retention controls.
+	*
+	* @example
+	* ```ts
+	* const projectDataRetention =
+	*   await client.admin.organization.projects.dataRetention.update(
+	*     'project_id',
+	*     { retention_type: 'organization_default' },
+	*   );
+	* ```
+	*/
+	update(projectID, body, options) {
+		return this._client.post(path$2`/organization/projects/${projectID}/data_retention`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/admin/organization/projects/hosted-tool-permissions.mjs
+var HostedToolPermissions = class extends APIResource {
+	/**
+	* Returns hosted tool permissions for a project.
+	*
+	* @example
+	* ```ts
+	* const projectHostedToolPermissions =
+	*   await client.admin.organization.projects.hostedToolPermissions.retrieve(
+	*     'project_id',
+	*   );
+	* ```
+	*/
+	retrieve(projectID, options) {
+		return this._client.get(path$2`/organization/projects/${projectID}/hosted_tool_permissions`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Updates hosted tool permissions for a project.
+	*
+	* @example
+	* ```ts
+	* const projectHostedToolPermissions =
+	*   await client.admin.organization.projects.hostedToolPermissions.update(
+	*     'project_id',
+	*   );
+	* ```
+	*/
+	update(projectID, body, options) {
+		return this._client.post(path$2`/organization/projects/${projectID}/hosted_tool_permissions`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/admin/organization/projects/model-permissions.mjs
+var ModelPermissions = class extends APIResource {
+	/**
+	* Returns model permissions for a project.
+	*
+	* @example
+	* ```ts
+	* const projectModelPermissions =
+	*   await client.admin.organization.projects.modelPermissions.retrieve(
+	*     'project_id',
+	*   );
+	* ```
+	*/
+	retrieve(projectID, options) {
+		return this._client.get(path$2`/organization/projects/${projectID}/model_permissions`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Updates model permissions for a project.
+	*
+	* @example
+	* ```ts
+	* const projectModelPermissions =
+	*   await client.admin.organization.projects.modelPermissions.update(
+	*     'project_id',
+	*     { mode: 'allow_list', model_ids: ['string'] },
+	*   );
+	* ```
+	*/
+	update(projectID, body, options) {
+		return this._client.post(path$2`/organization/projects/${projectID}/model_permissions`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Deletes model permissions for a project.
+	*
+	* @example
+	* ```ts
+	* const projectModelPermissionsDeleted =
+	*   await client.admin.organization.projects.modelPermissions.delete(
+	*     'project_id',
+	*   );
+	* ```
+	*/
+	delete(projectID, options) {
+		return this._client.delete(path$2`/organization/projects/${projectID}/model_permissions`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/admin/organization/projects/rate-limits.mjs
+var RateLimits = class extends APIResource {
+	/**
+	* Returns the rate limits per model for a project.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const projectRateLimit of client.admin.organization.projects.rateLimits.listRateLimits(
+	*   'project_id',
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	listRateLimits(projectID, query = {}, options) {
+		return this._client.getAPIList(path$2`/organization/projects/${projectID}/rate_limits`, ConversationCursorPage, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Updates a project rate limit.
+	*
+	* @example
+	* ```ts
+	* const projectRateLimit =
+	*   await client.admin.organization.projects.rateLimits.updateRateLimit(
+	*     'rate_limit_id',
+	*     { project_id: 'project_id' },
+	*   );
+	* ```
+	*/
+	updateRateLimit(rateLimitID, params, options) {
+		const { project_id, ...body } = params;
+		return this._client.post(path$2`/organization/projects/${project_id}/rate_limits/${rateLimitID}`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/admin/organization/projects/roles.mjs
+var Roles$3 = class extends APIResource {
+	/**
+	* Creates a custom role for a project.
+	*
+	* @example
+	* ```ts
+	* const role =
+	*   await client.admin.organization.projects.roles.create(
+	*     'project_id',
+	*     { permissions: ['string'], role_name: 'role_name' },
+	*   );
+	* ```
+	*/
+	create(projectID, body, options) {
+		return this._client.post(path$2`/projects/${projectID}/roles`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Retrieves a project role.
+	*
+	* @example
+	* ```ts
+	* const role =
+	*   await client.admin.organization.projects.roles.retrieve(
+	*     'role_id',
+	*     { project_id: 'project_id' },
+	*   );
+	* ```
+	*/
+	retrieve(roleID, params, options) {
+		const { project_id } = params;
+		return this._client.get(path$2`/projects/${project_id}/roles/${roleID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Updates an existing project role.
+	*
+	* @example
+	* ```ts
+	* const role =
+	*   await client.admin.organization.projects.roles.update(
+	*     'role_id',
+	*     { project_id: 'project_id' },
+	*   );
+	* ```
+	*/
+	update(roleID, params, options) {
+		const { project_id, ...body } = params;
+		return this._client.post(path$2`/projects/${project_id}/roles/${roleID}`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Lists the roles configured for a project.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const role of client.admin.organization.projects.roles.list(
+	*   'project_id',
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(projectID, query = {}, options) {
+		return this._client.getAPIList(path$2`/projects/${projectID}/roles`, NextCursorPage, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Deletes a custom role from a project.
+	*
+	* @example
+	* ```ts
+	* const role =
+	*   await client.admin.organization.projects.roles.delete(
+	*     'role_id',
+	*     { project_id: 'project_id' },
+	*   );
+	* ```
+	*/
+	delete(roleID, params, options) {
+		const { project_id } = params;
+		return this._client.delete(path$2`/projects/${project_id}/roles/${roleID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/admin/organization/projects/service-accounts.mjs
+var ServiceAccounts = class extends APIResource {
+	/**
+	* Creates a new service account in the project. This also returns an unredacted
+	* API key for the service account.
+	*
+	* @example
+	* ```ts
+	* const serviceAccount =
+	*   await client.admin.organization.projects.serviceAccounts.create(
+	*     'project_id',
+	*     { name: 'name' },
+	*   );
+	* ```
+	*/
+	create(projectID, body, options) {
+		return this._client.post(path$2`/organization/projects/${projectID}/service_accounts`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Retrieves a service account in the project.
+	*
+	* @example
+	* ```ts
+	* const projectServiceAccount =
+	*   await client.admin.organization.projects.serviceAccounts.retrieve(
+	*     'service_account_id',
+	*     { project_id: 'project_id' },
+	*   );
+	* ```
+	*/
+	retrieve(serviceAccountID, params, options) {
+		const { project_id } = params;
+		return this._client.get(path$2`/organization/projects/${project_id}/service_accounts/${serviceAccountID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Updates a service account in the project.
+	*
+	* @example
+	* ```ts
+	* const projectServiceAccount =
+	*   await client.admin.organization.projects.serviceAccounts.update(
+	*     'service_account_id',
+	*     { project_id: 'project_id' },
+	*   );
+	* ```
+	*/
+	update(serviceAccountID, params, options) {
+		const { project_id, ...body } = params;
+		return this._client.post(path$2`/organization/projects/${project_id}/service_accounts/${serviceAccountID}`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Returns a list of service accounts in the project.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const projectServiceAccount of client.admin.organization.projects.serviceAccounts.list(
+	*   'project_id',
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(projectID, query = {}, options) {
+		return this._client.getAPIList(path$2`/organization/projects/${projectID}/service_accounts`, ConversationCursorPage, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Deletes a service account from the project.
+	*
+	* Returns confirmation of service account deletion, or an error if the project is
+	* archived (archived projects have no service accounts).
+	*
+	* @example
+	* ```ts
+	* const serviceAccount =
+	*   await client.admin.organization.projects.serviceAccounts.delete(
+	*     'service_account_id',
+	*     { project_id: 'project_id' },
+	*   );
+	* ```
+	*/
+	delete(serviceAccountID, params, options) {
+		const { project_id } = params;
+		return this._client.delete(path$2`/organization/projects/${project_id}/service_accounts/${serviceAccountID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/admin/organization/projects/spend-alerts.mjs
+var SpendAlerts = class extends APIResource {
+	/**
+	* Creates a project spend alert.
+	*
+	* @example
+	* ```ts
+	* const projectSpendAlert =
+	*   await client.admin.organization.projects.spendAlerts.create(
+	*     'project_id',
+	*     {
+	*       currency: 'USD',
+	*       interval: 'month',
+	*       notification_channel: {
+	*         recipients: ['string'],
+	*         type: 'email',
+	*       },
+	*       threshold_amount: 0,
+	*     },
+	*   );
+	* ```
+	*/
+	create(projectID, body, options) {
+		return this._client.post(path$2`/organization/projects/${projectID}/spend_alerts`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Updates a project spend alert.
+	*
+	* @example
+	* ```ts
+	* const projectSpendAlert =
+	*   await client.admin.organization.projects.spendAlerts.update(
+	*     'alert_id',
+	*     {
+	*       project_id: 'project_id',
+	*       currency: 'USD',
+	*       interval: 'month',
+	*       notification_channel: {
+	*         recipients: ['string'],
+	*         type: 'email',
+	*       },
+	*       threshold_amount: 0,
+	*     },
+	*   );
+	* ```
+	*/
+	update(alertID, params, options) {
+		const { project_id, ...body } = params;
+		return this._client.post(path$2`/organization/projects/${project_id}/spend_alerts/${alertID}`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Lists project spend alerts.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const projectSpendAlert of client.admin.organization.projects.spendAlerts.list(
+	*   'project_id',
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(projectID, query = {}, options) {
+		return this._client.getAPIList(path$2`/organization/projects/${projectID}/spend_alerts`, ConversationCursorPage, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Deletes a project spend alert.
+	*
+	* @example
+	* ```ts
+	* const projectSpendAlertDeleted =
+	*   await client.admin.organization.projects.spendAlerts.delete(
+	*     'alert_id',
+	*     { project_id: 'project_id' },
+	*   );
+	* ```
+	*/
+	delete(alertID, params, options) {
+		const { project_id } = params;
+		return this._client.delete(path$2`/organization/projects/${project_id}/spend_alerts/${alertID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/admin/organization/projects/groups/roles.mjs
+var Roles$2 = class extends APIResource {
+	/**
+	* Assigns a project role to a group within a project.
+	*
+	* @example
+	* ```ts
+	* const role =
+	*   await client.admin.organization.projects.groups.roles.create(
+	*     'group_id',
+	*     { project_id: 'project_id', role_id: 'role_id' },
+	*   );
+	* ```
+	*/
+	create(groupID, params, options) {
+		const { project_id, ...body } = params;
+		return this._client.post(path$2`/projects/${project_id}/groups/${groupID}/roles`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Retrieves a project role assigned to a group.
+	*
+	* @example
+	* ```ts
+	* const role =
+	*   await client.admin.organization.projects.groups.roles.retrieve(
+	*     'role_id',
+	*     { project_id: 'project_id', group_id: 'group_id' },
+	*   );
+	* ```
+	*/
+	retrieve(roleID, params, options) {
+		const { project_id, group_id } = params;
+		return this._client.get(path$2`/projects/${project_id}/groups/${group_id}/roles/${roleID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Lists the project roles assigned to a group within a project.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const roleListResponse of client.admin.organization.projects.groups.roles.list(
+	*   'group_id',
+	*   { project_id: 'project_id' },
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(groupID, params, options) {
+		const { project_id, ...query } = params;
+		return this._client.getAPIList(path$2`/projects/${project_id}/groups/${groupID}/roles`, NextCursorPage, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Unassigns a project role from a group within a project.
+	*
+	* @example
+	* ```ts
+	* const role =
+	*   await client.admin.organization.projects.groups.roles.delete(
+	*     'role_id',
+	*     { project_id: 'project_id', group_id: 'group_id' },
+	*   );
+	* ```
+	*/
+	delete(roleID, params, options) {
+		const { project_id, group_id } = params;
+		return this._client.delete(path$2`/projects/${project_id}/groups/${group_id}/roles/${roleID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/admin/organization/projects/groups/groups.mjs
+var Groups = class extends APIResource {
+	constructor() {
+		super(...arguments);
+		this.roles = new Roles$2(this._client);
+	}
+	/**
+	* Grants a group access to a project.
+	*
+	* @example
+	* ```ts
+	* const projectGroup =
+	*   await client.admin.organization.projects.groups.create(
+	*     'project_id',
+	*     { group_id: 'group_id', role: 'role' },
+	*   );
+	* ```
+	*/
+	create(projectID, body, options) {
+		return this._client.post(path$2`/organization/projects/${projectID}/groups`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Retrieves a project's group.
+	*
+	* @example
+	* ```ts
+	* const projectGroup =
+	*   await client.admin.organization.projects.groups.retrieve(
+	*     'group_id',
+	*     { project_id: 'project_id' },
+	*   );
+	* ```
+	*/
+	retrieve(groupID, params, options) {
+		const { project_id, ...query } = params;
+		return this._client.get(path$2`/organization/projects/${project_id}/groups/${groupID}`, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Lists the groups that have access to a project.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const projectGroup of client.admin.organization.projects.groups.list(
+	*   'project_id',
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(projectID, query = {}, options) {
+		return this._client.getAPIList(path$2`/organization/projects/${projectID}/groups`, NextCursorPage, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Revokes a group's access to a project.
+	*
+	* @example
+	* ```ts
+	* const group =
+	*   await client.admin.organization.projects.groups.delete(
+	*     'group_id',
+	*     { project_id: 'project_id' },
+	*   );
+	* ```
+	*/
+	delete(groupID, params, options) {
+		const { project_id } = params;
+		return this._client.delete(path$2`/organization/projects/${project_id}/groups/${groupID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+};
+Groups.Roles = Roles$2;
 //#endregion
 //#region node_modules/openai/resources/admin/organization/projects/users/roles.mjs
-var jr = class extends P {
-	create(e, t, n) {
-		let { project_id: r, ...i } = t;
-		return this._client.post(F`/projects/${r}/users/${e}/roles`, {
-			body: i,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
+var Roles$1 = class extends APIResource {
+	/**
+	* Assigns a project role to a user within a project.
+	*
+	* @example
+	* ```ts
+	* const role =
+	*   await client.admin.organization.projects.users.roles.create(
+	*     'user_id',
+	*     { project_id: 'project_id', role_id: 'role_id' },
+	*   );
+	* ```
+	*/
+	create(userID, params, options) {
+		const { project_id, ...body } = params;
+		return this._client.post(path$2`/projects/${project_id}/users/${userID}/roles`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
 	}
-	retrieve(e, t, n) {
-		let { project_id: r, user_id: i } = t;
-		return this._client.get(F`/projects/${r}/users/${i}/roles/${e}`, {
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
+	/**
+	* Retrieves a project role assigned to a user.
+	*
+	* @example
+	* ```ts
+	* const role =
+	*   await client.admin.organization.projects.users.roles.retrieve(
+	*     'role_id',
+	*     { project_id: 'project_id', user_id: 'user_id' },
+	*   );
+	* ```
+	*/
+	retrieve(roleID, params, options) {
+		const { project_id, user_id } = params;
+		return this._client.get(path$2`/projects/${project_id}/users/${user_id}/roles/${roleID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
 	}
-	list(e, t, n) {
-		let { project_id: r, ...i } = t;
-		return this._client.getAPIList(F`/projects/${r}/users/${e}/roles`, M, {
-			query: i,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
+	/**
+	* Lists the project roles assigned to a user within a project.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const roleListResponse of client.admin.organization.projects.users.roles.list(
+	*   'user_id',
+	*   { project_id: 'project_id' },
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(userID, params, options) {
+		const { project_id, ...query } = params;
+		return this._client.getAPIList(path$2`/projects/${project_id}/users/${userID}/roles`, NextCursorPage, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
 	}
-	delete(e, t, n) {
-		let { project_id: r, user_id: i } = t;
-		return this._client.delete(F`/projects/${r}/users/${i}/roles/${e}`, {
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-}, Mr = class extends P {
-	constructor() {
-		super(...arguments), this.roles = new jr(this._client);
-	}
-	create(e, t, n) {
-		return this._client.post(F`/organization/projects/${e}/users`, {
-			body: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	retrieve(e, t, n) {
-		let { project_id: r } = t;
-		return this._client.get(F`/organization/projects/${r}/users/${e}`, {
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	update(e, t, n) {
-		let { project_id: r, ...i } = t;
-		return this._client.post(F`/organization/projects/${r}/users/${e}`, {
-			body: i,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	list(e, t = {}, n) {
-		return this._client.getAPIList(F`/organization/projects/${e}/users`, j, {
-			query: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	delete(e, t, n) {
-		let { project_id: r } = t;
-		return this._client.delete(F`/organization/projects/${r}/users/${e}`, {
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
+	/**
+	* Unassigns a project role from a user within a project.
+	*
+	* @example
+	* ```ts
+	* const role =
+	*   await client.admin.organization.projects.users.roles.delete(
+	*     'role_id',
+	*     { project_id: 'project_id', user_id: 'user_id' },
+	*   );
+	* ```
+	*/
+	delete(roleID, params, options) {
+		const { project_id, user_id } = params;
+		return this._client.delete(path$2`/projects/${project_id}/users/${user_id}/roles/${roleID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
 	}
 };
-Mr.Roles = jr;
+//#endregion
+//#region node_modules/openai/resources/admin/organization/projects/users/users.mjs
+var Users$1 = class extends APIResource {
+	constructor() {
+		super(...arguments);
+		this.roles = new Roles$1(this._client);
+	}
+	/**
+	* Adds a user to the project. Users must already be members of the organization to
+	* be added to a project.
+	*
+	* @example
+	* ```ts
+	* const projectUser =
+	*   await client.admin.organization.projects.users.create(
+	*     'project_id',
+	*     { role: 'role' },
+	*   );
+	* ```
+	*/
+	create(projectID, body, options) {
+		return this._client.post(path$2`/organization/projects/${projectID}/users`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Retrieves a user in the project.
+	*
+	* @example
+	* ```ts
+	* const projectUser =
+	*   await client.admin.organization.projects.users.retrieve(
+	*     'user_id',
+	*     { project_id: 'project_id' },
+	*   );
+	* ```
+	*/
+	retrieve(userID, params, options) {
+		const { project_id } = params;
+		return this._client.get(path$2`/organization/projects/${project_id}/users/${userID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Modifies a user's role in the project.
+	*
+	* @example
+	* ```ts
+	* const projectUser =
+	*   await client.admin.organization.projects.users.update(
+	*     'user_id',
+	*     { project_id: 'project_id' },
+	*   );
+	* ```
+	*/
+	update(userID, params, options) {
+		const { project_id, ...body } = params;
+		return this._client.post(path$2`/organization/projects/${project_id}/users/${userID}`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Returns a list of users in the project.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const projectUser of client.admin.organization.projects.users.list(
+	*   'project_id',
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(projectID, query = {}, options) {
+		return this._client.getAPIList(path$2`/organization/projects/${projectID}/users`, ConversationCursorPage, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Deletes a user from the project.
+	*
+	* Returns confirmation of project user deletion, or an error if the project is
+	* archived (archived projects have no users).
+	*
+	* @example
+	* ```ts
+	* const user =
+	*   await client.admin.organization.projects.users.delete(
+	*     'user_id',
+	*     { project_id: 'project_id' },
+	*   );
+	* ```
+	*/
+	delete(userID, params, options) {
+		const { project_id } = params;
+		return this._client.delete(path$2`/organization/projects/${project_id}/users/${userID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+};
+Users$1.Roles = Roles$1;
 //#endregion
 //#region node_modules/openai/resources/admin/organization/projects/projects.mjs
-var z = class extends P {
+var Projects = class extends APIResource {
 	constructor() {
-		super(...arguments), this.users = new Mr(this._client), this.serviceAccounts = new Dr(this._client), this.apiKeys = new br(this._client), this.rateLimits = new Tr(this._client), this.modelPermissions = new wr(this._client), this.hostedToolPermissions = new Cr(this._client), this.groups = new Ar(this._client), this.roles = new Er(this._client), this.dataRetention = new Sr(this._client), this.spendAlerts = new Or(this._client), this.certificates = new xr(this._client);
+		super(...arguments);
+		this.users = new Users$1(this._client);
+		this.serviceAccounts = new ServiceAccounts(this._client);
+		this.apiKeys = new APIKeys(this._client);
+		this.rateLimits = new RateLimits(this._client);
+		this.modelPermissions = new ModelPermissions(this._client);
+		this.hostedToolPermissions = new HostedToolPermissions(this._client);
+		this.groups = new Groups(this._client);
+		this.roles = new Roles$3(this._client);
+		this.dataRetention = new DataRetention(this._client);
+		this.spendAlerts = new SpendAlerts(this._client);
+		this.certificates = new Certificates(this._client);
 	}
-	create(e, t) {
+	/**
+	* Create a new project in the organization. Projects can be created and archived,
+	* but cannot be deleted.
+	*
+	* @example
+	* ```ts
+	* const project =
+	*   await client.admin.organization.projects.create({
+	*     name: 'name',
+	*   });
+	* ```
+	*/
+	create(body, options) {
 		return this._client.post("/organization/projects", {
-			body: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
 	}
-	retrieve(e, t) {
-		return this._client.get(F`/organization/projects/${e}`, {
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
+	/**
+	* Retrieves a project.
+	*
+	* @example
+	* ```ts
+	* const project =
+	*   await client.admin.organization.projects.retrieve(
+	*     'project_id',
+	*   );
+	* ```
+	*/
+	retrieve(projectID, options) {
+		return this._client.get(path$2`/organization/projects/${projectID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
 	}
-	update(e, t, n) {
-		return this._client.post(F`/organization/projects/${e}`, {
-			body: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
+	/**
+	* Modifies a project in the organization.
+	*
+	* @example
+	* ```ts
+	* const project =
+	*   await client.admin.organization.projects.update(
+	*     'project_id',
+	*   );
+	* ```
+	*/
+	update(projectID, body, options) {
+		return this._client.post(path$2`/organization/projects/${projectID}`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
 	}
-	list(e = {}, t) {
-		return this._client.getAPIList("/organization/projects", j, {
-			query: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
+	/**
+	* Returns a list of projects.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const project of client.admin.organization.projects.list()) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(query = {}, options) {
+		return this._client.getAPIList("/organization/projects", ConversationCursorPage, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
 	}
-	archive(e, t) {
-		return this._client.post(F`/organization/projects/${e}/archive`, {
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
+	/**
+	* Archives a project in the organization. Archived projects cannot be used or
+	* updated.
+	*
+	* @example
+	* ```ts
+	* const project =
+	*   await client.admin.organization.projects.archive(
+	*     'project_id',
+	*   );
+	* ```
+	*/
+	archive(projectID, options) {
+		return this._client.post(path$2`/organization/projects/${projectID}/archive`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
 	}
 };
-z.Users = Mr, z.ServiceAccounts = Dr, z.APIKeys = br, z.RateLimits = Tr, z.ModelPermissions = wr, z.HostedToolPermissions = Cr, z.Groups = Ar, z.Roles = Er, z.DataRetention = Sr, z.SpendAlerts = Or, z.Certificates = xr;
+Projects.Users = Users$1;
+Projects.ServiceAccounts = ServiceAccounts;
+Projects.APIKeys = APIKeys;
+Projects.RateLimits = RateLimits;
+Projects.ModelPermissions = ModelPermissions;
+Projects.HostedToolPermissions = HostedToolPermissions;
+Projects.Groups = Groups;
+Projects.Roles = Roles$3;
+Projects.DataRetention = DataRetention;
+Projects.SpendAlerts = SpendAlerts;
+Projects.Certificates = Certificates;
 //#endregion
 //#region node_modules/openai/resources/admin/organization/users/roles.mjs
-var Nr = class extends P {
-	create(e, t, n) {
-		return this._client.post(F`/organization/users/${e}/roles`, {
-			body: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
+var Roles = class extends APIResource {
+	/**
+	* Assigns an organization role to a user within the organization.
+	*
+	* @example
+	* ```ts
+	* const role =
+	*   await client.admin.organization.users.roles.create(
+	*     'user_id',
+	*     { role_id: 'role_id' },
+	*   );
+	* ```
+	*/
+	create(userID, body, options) {
+		return this._client.post(path$2`/organization/users/${userID}/roles`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
 	}
-	retrieve(e, t, n) {
-		let { user_id: r } = t;
-		return this._client.get(F`/organization/users/${r}/roles/${e}`, {
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
+	/**
+	* Retrieves an organization role assigned to a user.
+	*
+	* @example
+	* ```ts
+	* const role =
+	*   await client.admin.organization.users.roles.retrieve(
+	*     'role_id',
+	*     { user_id: 'user_id' },
+	*   );
+	* ```
+	*/
+	retrieve(roleID, params, options) {
+		const { user_id } = params;
+		return this._client.get(path$2`/organization/users/${user_id}/roles/${roleID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
 	}
-	list(e, t = {}, n) {
-		return this._client.getAPIList(F`/organization/users/${e}/roles`, M, {
-			query: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
+	/**
+	* Lists the organization roles assigned to a user within the organization.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const roleListResponse of client.admin.organization.users.roles.list(
+	*   'user_id',
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(userID, query = {}, options) {
+		return this._client.getAPIList(path$2`/organization/users/${userID}/roles`, NextCursorPage, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
 	}
-	delete(e, t, n) {
-		let { user_id: r } = t;
-		return this._client.delete(F`/organization/users/${r}/roles/${e}`, {
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-}, Pr = class extends P {
-	constructor() {
-		super(...arguments), this.roles = new Nr(this._client);
-	}
-	retrieve(e, t) {
-		return this._client.get(F`/organization/users/${e}`, {
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	update(e, t, n) {
-		return this._client.post(F`/organization/users/${e}`, {
-			body: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	list(e = {}, t) {
-		return this._client.getAPIList("/organization/users", j, {
-			query: e,
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
-		});
-	}
-	delete(e, t) {
-		return this._client.delete(F`/organization/users/${e}`, {
-			...t,
-			__security: { adminAPIKeyAuth: !0 }
+	/**
+	* Unassigns an organization role from a user within the organization.
+	*
+	* @example
+	* ```ts
+	* const role =
+	*   await client.admin.organization.users.roles.delete(
+	*     'role_id',
+	*     { user_id: 'user_id' },
+	*   );
+	* ```
+	*/
+	delete(roleID, params, options) {
+		const { user_id } = params;
+		return this._client.delete(path$2`/organization/users/${user_id}/roles/${roleID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
 	}
 };
-Pr.Roles = Nr;
+//#endregion
+//#region node_modules/openai/resources/admin/organization/users/users.mjs
+var Users = class extends APIResource {
+	constructor() {
+		super(...arguments);
+		this.roles = new Roles(this._client);
+	}
+	/**
+	* Retrieves a user by their identifier.
+	*
+	* @example
+	* ```ts
+	* const organizationUser =
+	*   await client.admin.organization.users.retrieve('user_id');
+	* ```
+	*/
+	retrieve(userID, options) {
+		return this._client.get(path$2`/organization/users/${userID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Modifies a user's role in the organization.
+	*
+	* @example
+	* ```ts
+	* const organizationUser =
+	*   await client.admin.organization.users.update('user_id');
+	* ```
+	*/
+	update(userID, body, options) {
+		return this._client.post(path$2`/organization/users/${userID}`, {
+			body,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Lists all of the users in the organization.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const organizationUser of client.admin.organization.users.list()) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(query = {}, options) {
+		return this._client.getAPIList("/organization/users", ConversationCursorPage, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+	/**
+	* Deletes a user from the organization.
+	*
+	* @example
+	* ```ts
+	* const user = await client.admin.organization.users.delete(
+	*   'user_id',
+	* );
+	* ```
+	*/
+	delete(userID, options) {
+		return this._client.delete(path$2`/organization/users/${userID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
+		});
+	}
+};
+Users.Roles = Roles;
 //#endregion
 //#region node_modules/openai/resources/admin/organization/organization.mjs
-var B = class extends P {
+var Organization = class extends APIResource {
 	constructor() {
-		super(...arguments), this.auditLogs = new ur(this._client), this.adminAPIKeys = new lr(this._client), this.usage = new gr(this._client), this.invites = new pr(this._client), this.users = new Pr(this._client), this.groups = new yr(this._client), this.roles = new mr(this._client), this.dataRetention = new fr(this._client), this.spendAlerts = new hr(this._client), this.certificates = new dr(this._client), this.projects = new z(this._client);
+		super(...arguments);
+		this.auditLogs = new AuditLogs(this._client);
+		this.adminAPIKeys = new AdminAPIKeys(this._client);
+		this.usage = new Usage(this._client);
+		this.invites = new Invites(this._client);
+		this.users = new Users(this._client);
+		this.groups = new Groups$1(this._client);
+		this.roles = new Roles$5(this._client);
+		this.dataRetention = new DataRetention$1(this._client);
+		this.spendAlerts = new SpendAlerts$1(this._client);
+		this.certificates = new Certificates$1(this._client);
+		this.projects = new Projects(this._client);
 	}
 };
-B.AuditLogs = ur, B.AdminAPIKeys = lr, B.Usage = gr, B.Invites = pr, B.Users = Pr, B.Groups = yr, B.Roles = mr, B.DataRetention = fr, B.SpendAlerts = hr, B.Certificates = dr, B.Projects = z;
+Organization.AuditLogs = AuditLogs;
+Organization.AdminAPIKeys = AdminAPIKeys;
+Organization.Usage = Usage;
+Organization.Invites = Invites;
+Organization.Users = Users;
+Organization.Groups = Groups$1;
+Organization.Roles = Roles$5;
+Organization.DataRetention = DataRetention$1;
+Organization.SpendAlerts = SpendAlerts$1;
+Organization.Certificates = Certificates$1;
+Organization.Projects = Projects;
 //#endregion
 //#region node_modules/openai/resources/admin/admin.mjs
-var Fr = class extends P {
+var Admin = class extends APIResource {
 	constructor() {
-		super(...arguments), this.organization = new B(this._client);
+		super(...arguments);
+		this.organization = new Organization(this._client);
 	}
 };
-Fr.Organization = B;
+Admin.Organization = Organization;
 //#endregion
 //#region node_modules/openai/internal/headers.mjs
-var Ir = /* @__PURE__ */ Symbol("brand.privateNullableHeaders");
-function* Lr(e) {
-	if (!e) return;
-	if (Ir in e) {
-		let { values: t, nulls: n } = e;
-		yield* t.entries();
-		for (let e of n) yield [e, null];
+var brand_privateNullableHeaders = /* @__PURE__ */ Symbol("brand.privateNullableHeaders");
+function* iterateHeaders(headers) {
+	if (!headers) return;
+	if (brand_privateNullableHeaders in headers) {
+		const { values, nulls } = headers;
+		yield* values.entries();
+		for (const name of nulls) yield [name, null];
 		return;
 	}
-	let t = !1, n;
-	e instanceof Headers ? n = e.entries() : _e(e) ? n = e : (t = !0, n = Object.entries(e ?? {}));
-	for (let e of n) {
-		let n = e[0];
-		if (typeof n != "string") throw TypeError("expected header name to be a string");
-		let r = _e(e[1]) ? e[1] : [e[1]], i = !1;
-		for (let e of r) e !== void 0 && (t && !i && (i = !0, yield [n, null]), yield [n, e]);
+	let shouldClear = false;
+	let iter;
+	if (headers instanceof Headers) iter = headers.entries();
+	else if (isReadonlyArray(headers)) iter = headers;
+	else {
+		shouldClear = true;
+		iter = Object.entries(headers ?? {});
+	}
+	for (let row of iter) {
+		const name = row[0];
+		if (typeof name !== "string") throw new TypeError("expected header name to be a string");
+		const values = isReadonlyArray(row[1]) ? row[1] : [row[1]];
+		let didClear = false;
+		for (const value of values) {
+			if (value === void 0) continue;
+			if (shouldClear && !didClear) {
+				didClear = true;
+				yield [name, null];
+			}
+			yield [name, value];
+		}
 	}
 }
-var V = (e) => {
-	let t = new Headers(), n = /* @__PURE__ */ new Set();
-	for (let r of e) {
-		let e = /* @__PURE__ */ new Set();
-		for (let [i, a] of Lr(r)) {
-			let r = i.toLowerCase();
-			e.has(r) || (t.delete(i), e.add(r)), a === null ? (t.delete(i), n.add(r)) : (t.append(i, a), n.delete(r));
+var buildHeaders = (newHeaders) => {
+	const targetHeaders = new Headers();
+	const nullHeaders = /* @__PURE__ */ new Set();
+	for (const headers of newHeaders) {
+		const seenHeaders = /* @__PURE__ */ new Set();
+		for (const [name, value] of iterateHeaders(headers)) {
+			const lowerName = name.toLowerCase();
+			if (!seenHeaders.has(lowerName)) {
+				targetHeaders.delete(name);
+				seenHeaders.add(lowerName);
+			}
+			if (value === null) {
+				targetHeaders.delete(name);
+				nullHeaders.add(lowerName);
+			} else {
+				targetHeaders.append(name, value);
+				nullHeaders.delete(lowerName);
+			}
 		}
 	}
 	return {
-		[Ir]: !0,
-		values: t,
-		nulls: n
+		[brand_privateNullableHeaders]: true,
+		values: targetHeaders,
+		nulls: nullHeaders
 	};
-}, Rr = class extends P {
-	create(e, t) {
+};
+//#endregion
+//#region node_modules/openai/resources/audio/speech.mjs
+/**
+* Turn audio into text or text into audio.
+*/
+var Speech = class extends APIResource {
+	/**
+	* Generates audio from the input text.
+	*
+	* Returns the audio file content, or a stream of audio events.
+	*
+	* @example
+	* ```ts
+	* const speech = await client.audio.speech.create({
+	*   input: 'input',
+	*   model: 'tts-1',
+	*   voice: 'alloy',
+	* });
+	*
+	* const content = await speech.blob();
+	* console.log(content);
+	* ```
+	*/
+	create(body, options) {
 		return this._client.post("/audio/speech", {
-			body: e,
-			...t,
-			headers: V([{ Accept: "application/octet-stream" }, t?.headers]),
-			__security: { bearerAuth: !0 },
-			__binaryResponse: !0
+			body,
+			...options,
+			headers: buildHeaders([{ Accept: "application/octet-stream" }, options?.headers]),
+			__security: { bearerAuth: true },
+			__binaryResponse: true
 		});
 	}
-}, zr = class extends P {
-	create(e, t) {
-		return this._client.post("/audio/transcriptions", N({
-			body: e,
-			...t,
-			stream: e.stream ?? !1,
-			__metadata: { model: e.model },
-			__security: { bearerAuth: !0 }
+};
+//#endregion
+//#region node_modules/openai/resources/audio/transcriptions.mjs
+/**
+* Turn audio into text or text into audio.
+*/
+var Transcriptions = class extends APIResource {
+	create(body, options) {
+		return this._client.post("/audio/transcriptions", multipartFormRequestOptions({
+			body,
+			...options,
+			stream: body.stream ?? false,
+			__metadata: { model: body.model },
+			__security: { bearerAuth: true }
 		}, this._client));
-	}
-}, Br = class extends P {
-	create(e, t) {
-		return this._client.post("/audio/translations", N({
-			body: e,
-			...t,
-			__metadata: { model: e.model },
-			__security: { bearerAuth: !0 }
-		}, this._client));
-	}
-}, Vr = class extends P {
-	constructor() {
-		super(...arguments), this.transcriptions = new zr(this._client), this.translations = new Br(this._client), this.speech = new Rr(this._client);
 	}
 };
-Vr.Transcriptions = zr, Vr.Translations = Br, Vr.Speech = Rr;
+//#endregion
+//#region node_modules/openai/resources/audio/translations.mjs
+/**
+* Turn audio into text or text into audio.
+*/
+var Translations = class extends APIResource {
+	create(body, options) {
+		return this._client.post("/audio/translations", multipartFormRequestOptions({
+			body,
+			...options,
+			__metadata: { model: body.model },
+			__security: { bearerAuth: true }
+		}, this._client));
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/audio/audio.mjs
+var Audio = class extends APIResource {
+	constructor() {
+		super(...arguments);
+		this.transcriptions = new Transcriptions(this._client);
+		this.translations = new Translations(this._client);
+		this.speech = new Speech(this._client);
+	}
+};
+Audio.Transcriptions = Transcriptions;
+Audio.Translations = Translations;
+Audio.Speech = Speech;
 //#endregion
 //#region node_modules/openai/resources/batches.mjs
-var Hr = class extends P {
-	create(e, t) {
+/**
+* Create large batches of API requests to run asynchronously.
+*/
+var Batches = class extends APIResource {
+	/**
+	* Creates and executes a batch from an uploaded file of requests
+	*/
+	create(body, options) {
 		return this._client.post("/batches", {
-			body: e,
-			...t,
-			__security: { bearerAuth: !0 }
+			body,
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	retrieve(e, t) {
-		return this._client.get(F`/batches/${e}`, {
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* Retrieves a batch.
+	*/
+	retrieve(batchID, options) {
+		return this._client.get(path$2`/batches/${batchID}`, {
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	list(e = {}, t) {
-		return this._client.getAPIList("/batches", A, {
-			query: e,
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* List your organization's batches.
+	*/
+	list(query = {}, options) {
+		return this._client.getAPIList("/batches", CursorPage, {
+			query,
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	cancel(e, t) {
-		return this._client.post(F`/batches/${e}/cancel`, {
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* Cancels an in-progress batch. The batch will be in status `cancelling` for up to
+	* 10 minutes, before changing to `cancelled`, where it will have partial results
+	* (if any) available in the output file.
+	*/
+	cancel(batchID, options) {
+		return this._client.post(path$2`/batches/${batchID}/cancel`, {
+			...options,
+			__security: { bearerAuth: true }
 		});
-	}
-}, Ur = class extends P {
-	create(e, t) {
-		return this._client.post("/assistants", {
-			body: e,
-			...t,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, t?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-	retrieve(e, t) {
-		return this._client.get(F`/assistants/${e}`, {
-			...t,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, t?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-	update(e, t, n) {
-		return this._client.post(F`/assistants/${e}`, {
-			body: t,
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-	list(e = {}, t) {
-		return this._client.getAPIList("/assistants", A, {
-			query: e,
-			...t,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, t?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-	delete(e, t) {
-		return this._client.delete(F`/assistants/${e}`, {
-			...t,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, t?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-}, Wr = class extends P {
-	create(e, t) {
-		return this._client.post("/realtime/sessions", {
-			body: e,
-			...t,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, t?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-}, Gr = class extends P {
-	create(e, t) {
-		return this._client.post("/realtime/transcription_sessions", {
-			body: e,
-			...t,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, t?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-}, Kr = class extends P {
-	constructor() {
-		super(...arguments), this.sessions = new Wr(this._client), this.transcriptionSessions = new Gr(this._client);
 	}
 };
-Kr.Sessions = Wr, Kr.TranscriptionSessions = Gr;
+//#endregion
+//#region node_modules/openai/resources/beta/assistants.mjs
+/**
+* Build Assistants that can call models and use tools.
+*/
+var Assistants = class extends APIResource {
+	/**
+	* Create an assistant with a model and instructions.
+	*
+	* @deprecated
+	*/
+	create(body, options) {
+		return this._client.post("/assistants", {
+			body,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Retrieves an assistant.
+	*
+	* @deprecated
+	*/
+	retrieve(assistantID, options) {
+		return this._client.get(path$2`/assistants/${assistantID}`, {
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Modifies an assistant.
+	*
+	* @deprecated
+	*/
+	update(assistantID, body, options) {
+		return this._client.post(path$2`/assistants/${assistantID}`, {
+			body,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Returns a list of assistants.
+	*
+	* @deprecated
+	*/
+	list(query = {}, options) {
+		return this._client.getAPIList("/assistants", CursorPage, {
+			query,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Delete an assistant.
+	*
+	* @deprecated
+	*/
+	delete(assistantID, options) {
+		return this._client.delete(path$2`/assistants/${assistantID}`, {
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/beta/realtime/sessions.mjs
+var Sessions$1 = class extends APIResource {
+	/**
+	* Create an ephemeral API token for use in client-side applications with the
+	* Realtime API. Can be configured with the same session parameters as the
+	* `session.update` client event.
+	*
+	* It responds with a session object, plus a `client_secret` key which contains a
+	* usable ephemeral API token that can be used to authenticate browser clients for
+	* the Realtime API.
+	*
+	* @example
+	* ```ts
+	* const session =
+	*   await client.beta.realtime.sessions.create();
+	* ```
+	*/
+	create(body, options) {
+		return this._client.post("/realtime/sessions", {
+			body,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/beta/realtime/transcription-sessions.mjs
+var TranscriptionSessions = class extends APIResource {
+	/**
+	* Create an ephemeral API token for use in client-side applications with the
+	* Realtime API specifically for realtime transcriptions. Can be configured with
+	* the same session parameters as the `transcription_session.update` client event.
+	*
+	* It responds with a session object, plus a `client_secret` key which contains a
+	* usable ephemeral API token that can be used to authenticate browser clients for
+	* the Realtime API.
+	*
+	* @example
+	* ```ts
+	* const transcriptionSession =
+	*   await client.beta.realtime.transcriptionSessions.create();
+	* ```
+	*/
+	create(body, options) {
+		return this._client.post("/realtime/transcription_sessions", {
+			body,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/beta/realtime/realtime.mjs
+/**
+* @deprecated Realtime has now launched and is generally available. The old beta API is now deprecated.
+*/
+var Realtime$1 = class extends APIResource {
+	constructor() {
+		super(...arguments);
+		this.sessions = new Sessions$1(this._client);
+		this.transcriptionSessions = new TranscriptionSessions(this._client);
+	}
+};
+Realtime$1.Sessions = Sessions$1;
+Realtime$1.TranscriptionSessions = TranscriptionSessions;
 //#endregion
 //#region node_modules/openai/resources/beta/chatkit/sessions.mjs
-var qr = class extends P {
-	create(e, t) {
+var Sessions = class extends APIResource {
+	/**
+	* Create a ChatKit session.
+	*
+	* @example
+	* ```ts
+	* const chatSession =
+	*   await client.beta.chatkit.sessions.create({
+	*     user: 'x',
+	*     workflow: { id: 'id' },
+	*   });
+	* ```
+	*/
+	create(body, options) {
 		return this._client.post("/chatkit/sessions", {
-			body: e,
-			...t,
-			headers: V([{ "OpenAI-Beta": "chatkit_beta=v1" }, t?.headers]),
-			__security: { bearerAuth: !0 }
+			body,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "chatkit_beta=v1" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
-	cancel(e, t) {
-		return this._client.post(F`/chatkit/sessions/${e}/cancel`, {
-			...t,
-			headers: V([{ "OpenAI-Beta": "chatkit_beta=v1" }, t?.headers]),
-			__security: { bearerAuth: !0 }
+	/**
+	* Cancel an active ChatKit session and return its most recent metadata.
+	*
+	* Cancelling prevents new requests from using the issued client secret.
+	*
+	* @example
+	* ```ts
+	* const chatSession =
+	*   await client.beta.chatkit.sessions.cancel('cksess_123');
+	* ```
+	*/
+	cancel(sessionID, options) {
+		return this._client.post(path$2`/chatkit/sessions/${sessionID}/cancel`, {
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "chatkit_beta=v1" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
-	}
-}, Jr = class extends P {
-	retrieve(e, t) {
-		return this._client.get(F`/chatkit/threads/${e}`, {
-			...t,
-			headers: V([{ "OpenAI-Beta": "chatkit_beta=v1" }, t?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-	list(e = {}, t) {
-		return this._client.getAPIList("/chatkit/threads", j, {
-			query: e,
-			...t,
-			headers: V([{ "OpenAI-Beta": "chatkit_beta=v1" }, t?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-	delete(e, t) {
-		return this._client.delete(F`/chatkit/threads/${e}`, {
-			...t,
-			headers: V([{ "OpenAI-Beta": "chatkit_beta=v1" }, t?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-	listItems(e, t = {}, n) {
-		return this._client.getAPIList(F`/chatkit/threads/${e}/items`, j, {
-			query: t,
-			...n,
-			headers: V([{ "OpenAI-Beta": "chatkit_beta=v1" }, n?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-}, Yr = class extends P {
-	constructor() {
-		super(...arguments), this.sessions = new qr(this._client), this.threads = new Jr(this._client);
 	}
 };
-Yr.Sessions = qr, Yr.Threads = Jr;
+//#endregion
+//#region node_modules/openai/resources/beta/chatkit/threads.mjs
+var Threads$1 = class extends APIResource {
+	/**
+	* Retrieve a ChatKit thread by its identifier.
+	*
+	* @example
+	* ```ts
+	* const chatkitThread =
+	*   await client.beta.chatkit.threads.retrieve('cthr_123');
+	* ```
+	*/
+	retrieve(threadID, options) {
+		return this._client.get(path$2`/chatkit/threads/${threadID}`, {
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "chatkit_beta=v1" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* List ChatKit threads with optional pagination and user filters.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const chatkitThread of client.beta.chatkit.threads.list()) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(query = {}, options) {
+		return this._client.getAPIList("/chatkit/threads", ConversationCursorPage, {
+			query,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "chatkit_beta=v1" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Delete a ChatKit thread along with its items and stored attachments.
+	*
+	* @example
+	* ```ts
+	* const thread = await client.beta.chatkit.threads.delete(
+	*   'cthr_123',
+	* );
+	* ```
+	*/
+	delete(threadID, options) {
+		return this._client.delete(path$2`/chatkit/threads/${threadID}`, {
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "chatkit_beta=v1" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* List items that belong to a ChatKit thread.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const thread of client.beta.chatkit.threads.listItems(
+	*   'cthr_123',
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	listItems(threadID, query = {}, options) {
+		return this._client.getAPIList(path$2`/chatkit/threads/${threadID}/items`, ConversationCursorPage, {
+			query,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "chatkit_beta=v1" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/beta/chatkit/chatkit.mjs
+var ChatKit = class extends APIResource {
+	constructor() {
+		super(...arguments);
+		this.sessions = new Sessions(this._client);
+		this.threads = new Threads$1(this._client);
+	}
+};
+ChatKit.Sessions = Sessions;
+ChatKit.Threads = Threads$1;
 //#endregion
 //#region node_modules/openai/resources/beta/threads/messages.mjs
-var Xr = class extends P {
-	create(e, t, n) {
-		return this._client.post(F`/threads/${e}/messages`, {
-			body: t,
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
+/**
+* Build Assistants that can call models and use tools.
+*
+* @deprecated The Assistants API is deprecated in favor of the Responses API
+*/
+var Messages = class extends APIResource {
+	/**
+	* Create a message.
+	*
+	* @deprecated The Assistants API is deprecated in favor of the Responses API
+	*/
+	create(threadID, body, options) {
+		return this._client.post(path$2`/threads/${threadID}/messages`, {
+			body,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
-	retrieve(e, t, n) {
-		let { thread_id: r } = t;
-		return this._client.get(F`/threads/${r}/messages/${e}`, {
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
+	/**
+	* Retrieve a message.
+	*
+	* @deprecated The Assistants API is deprecated in favor of the Responses API
+	*/
+	retrieve(messageID, params, options) {
+		const { thread_id } = params;
+		return this._client.get(path$2`/threads/${thread_id}/messages/${messageID}`, {
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
-	update(e, t, n) {
-		let { thread_id: r, ...i } = t;
-		return this._client.post(F`/threads/${r}/messages/${e}`, {
-			body: i,
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
+	/**
+	* Modifies a message.
+	*
+	* @deprecated The Assistants API is deprecated in favor of the Responses API
+	*/
+	update(messageID, params, options) {
+		const { thread_id, ...body } = params;
+		return this._client.post(path$2`/threads/${thread_id}/messages/${messageID}`, {
+			body,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
-	list(e, t = {}, n) {
-		return this._client.getAPIList(F`/threads/${e}/messages`, A, {
-			query: t,
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
+	/**
+	* Returns a list of messages for a given thread.
+	*
+	* @deprecated The Assistants API is deprecated in favor of the Responses API
+	*/
+	list(threadID, query = {}, options) {
+		return this._client.getAPIList(path$2`/threads/${threadID}/messages`, CursorPage, {
+			query,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
-	delete(e, t, n) {
-		let { thread_id: r } = t;
-		return this._client.delete(F`/threads/${r}/messages/${e}`, {
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
+	/**
+	* Deletes a message.
+	*
+	* @deprecated The Assistants API is deprecated in favor of the Responses API
+	*/
+	delete(messageID, params, options) {
+		const { thread_id } = params;
+		return this._client.delete(path$2`/threads/${thread_id}/messages/${messageID}`, {
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
-	}
-}, Zr = class extends P {
-	retrieve(e, t, n) {
-		let { thread_id: r, run_id: i, ...a } = t;
-		return this._client.get(F`/threads/${r}/runs/${i}/steps/${e}`, {
-			query: a,
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-	list(e, t, n) {
-		let { thread_id: r, ...i } = t;
-		return this._client.getAPIList(F`/threads/${r}/runs/${e}/steps`, A, {
-			query: i,
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-}, Qr = (e) => {
-	if (typeof Buffer < "u") {
-		let t = Buffer.from(e, "base64");
-		return Array.from(new Float32Array(t.buffer, t.byteOffset, t.length / Float32Array.BYTES_PER_ELEMENT));
-	} else {
-		let t = atob(e), n = t.length, r = new Uint8Array(n);
-		for (let e = 0; e < n; e++) r[e] = t.charCodeAt(e);
-		return Array.from(new Float32Array(r.buffer));
-	}
-}, $r = (e) => {
-	if (globalThis.process !== void 0) return globalThis.process.env?.[e]?.trim() || void 0;
-	if (globalThis.Deno !== void 0) return globalThis.Deno.env?.get?.(e)?.trim() || void 0;
-}, H, ei, ti, U, ni, W, ri, ii, ai, oi, G, si, ci, li, ui, di, fi, pi, mi, hi, gi, _i, vi, yi = class extends kn {
-	constructor() {
-		super(...arguments), H.add(this), ti.set(this, []), U.set(this, {}), ni.set(this, {}), W.set(this, void 0), ri.set(this, void 0), ii.set(this, void 0), ai.set(this, void 0), oi.set(this, void 0), G.set(this, void 0), si.set(this, void 0), ci.set(this, void 0), li.set(this, void 0);
-	}
-	[(ti = /* @__PURE__ */ new WeakMap(), U = /* @__PURE__ */ new WeakMap(), ni = /* @__PURE__ */ new WeakMap(), W = /* @__PURE__ */ new WeakMap(), ri = /* @__PURE__ */ new WeakMap(), ii = /* @__PURE__ */ new WeakMap(), ai = /* @__PURE__ */ new WeakMap(), oi = /* @__PURE__ */ new WeakMap(), G = /* @__PURE__ */ new WeakMap(), si = /* @__PURE__ */ new WeakMap(), ci = /* @__PURE__ */ new WeakMap(), li = /* @__PURE__ */ new WeakMap(), H = /* @__PURE__ */ new WeakSet(), Symbol.asyncIterator)]() {
-		let e = [], t = [], n = !1;
-		return this.on("event", (n) => {
-			let r = t.shift();
-			r ? r.resolve(n) : e.push(n);
-		}), this.on("end", () => {
-			n = !0;
-			for (let e of t) e.resolve(void 0);
-			t.length = 0;
-		}), this.on("abort", (e) => {
-			n = !0;
-			for (let n of t) n.reject(e);
-			t.length = 0;
-		}), this.on("error", (e) => {
-			n = !0;
-			for (let n of t) n.reject(e);
-			t.length = 0;
-		}), {
-			next: async () => e.length ? {
-				value: e.shift(),
-				done: !1
-			} : n ? {
-				value: void 0,
-				done: !0
-			} : new Promise((e, n) => t.push({
-				resolve: e,
-				reject: n
-			})).then((e) => e ? {
-				value: e,
-				done: !1
-			} : {
-				value: void 0,
-				done: !0
-			}),
-			return: async () => (this.abort(), {
-				value: void 0,
-				done: !0
-			})
-		};
-	}
-	static fromReadableStream(e) {
-		let t = new ei();
-		return t._run(() => t._fromReadableStream(e)), t;
-	}
-	async _fromReadableStream(e, t) {
-		let n = t?.signal;
-		n && (n.aborted && this.controller.abort(), n.addEventListener("abort", () => this.controller.abort())), this._connected();
-		let r = yt.fromReadableStream(e, this.controller);
-		for await (let e of r) _(this, H, "m", ui).call(this, e);
-		if (r.controller.signal?.aborted) throw new S();
-		return this._addRun(_(this, H, "m", di).call(this));
-	}
-	toReadableStream() {
-		return new yt(this[Symbol.asyncIterator].bind(this), this.controller).toReadableStream();
-	}
-	static createToolAssistantStream(e, t, n, r) {
-		let i = new ei();
-		return i._run(() => i._runToolAssistantStream(e, t, n, {
-			...r,
-			headers: {
-				...r?.headers,
-				"X-Stainless-Helper-Method": "stream"
-			}
-		})), i;
-	}
-	async _createToolAssistantStream(e, t, n, r) {
-		let i = r?.signal;
-		i && (i.aborted && this.controller.abort(), i.addEventListener("abort", () => this.controller.abort()));
-		let a = {
-			...n,
-			stream: !0
-		}, o = await e.submitToolOutputs(t, a, {
-			...r,
-			signal: this.controller.signal
-		});
-		this._connected();
-		for await (let e of o) _(this, H, "m", ui).call(this, e);
-		if (o.controller.signal?.aborted) throw new S();
-		return this._addRun(_(this, H, "m", di).call(this));
-	}
-	static createThreadAssistantStream(e, t, n) {
-		let r = new ei();
-		return r._run(() => r._threadAssistantStream(e, t, {
-			...n,
-			headers: {
-				...n?.headers,
-				"X-Stainless-Helper-Method": "stream"
-			}
-		})), r;
-	}
-	static createAssistantStream(e, t, n, r) {
-		let i = new ei();
-		return i._run(() => i._runAssistantStream(e, t, n, {
-			...r,
-			headers: {
-				...r?.headers,
-				"X-Stainless-Helper-Method": "stream"
-			}
-		})), i;
-	}
-	currentEvent() {
-		return _(this, si, "f");
-	}
-	currentRun() {
-		return _(this, ci, "f");
-	}
-	currentMessageSnapshot() {
-		return _(this, W, "f");
-	}
-	currentRunStepSnapshot() {
-		return _(this, li, "f");
-	}
-	async finalRunSteps() {
-		return await this.done(), Object.values(_(this, U, "f"));
-	}
-	async finalMessages() {
-		return await this.done(), Object.values(_(this, ni, "f"));
-	}
-	async finalRun() {
-		if (await this.done(), !_(this, ri, "f")) throw Error("Final run was not received.");
-		return _(this, ri, "f");
-	}
-	async _createThreadAssistantStream(e, t, n) {
-		let r = n?.signal;
-		r && (r.aborted && this.controller.abort(), r.addEventListener("abort", () => this.controller.abort()));
-		let i = {
-			...t,
-			stream: !0
-		}, a = await e.createAndRun(i, {
-			...n,
-			signal: this.controller.signal
-		});
-		this._connected();
-		for await (let e of a) _(this, H, "m", ui).call(this, e);
-		if (a.controller.signal?.aborted) throw new S();
-		return this._addRun(_(this, H, "m", di).call(this));
-	}
-	async _createAssistantStream(e, t, n, r) {
-		let i = r?.signal;
-		i && (i.aborted && this.controller.abort(), i.addEventListener("abort", () => this.controller.abort()));
-		let a = {
-			...n,
-			stream: !0
-		}, o = await e.create(t, a, {
-			...r,
-			signal: this.controller.signal
-		});
-		this._connected();
-		for await (let e of o) _(this, H, "m", ui).call(this, e);
-		if (o.controller.signal?.aborted) throw new S();
-		return this._addRun(_(this, H, "m", di).call(this));
-	}
-	static accumulateDelta(e, t) {
-		for (let [n, r] of Object.entries(t)) {
-			if (!e.hasOwnProperty(n)) {
-				e[n] = r;
-				continue;
-			}
-			let t = e[n];
-			if (t == null) {
-				e[n] = r;
-				continue;
-			}
-			if (n === "index" || n === "type") {
-				e[n] = r;
-				continue;
-			}
-			if (typeof t == "string" && typeof r == "string") t += r;
-			else if (typeof t == "number" && typeof r == "number") t += r;
-			else if (xe(t) && xe(r)) t = this.accumulateDelta(t, r);
-			else if (Array.isArray(t) && Array.isArray(r)) {
-				if (t.every((e) => typeof e == "string" || typeof e == "number")) {
-					t.push(...r);
-					continue;
-				}
-				for (let e of r) {
-					if (!xe(e)) throw Error(`Expected array delta entry to be an object but got: ${e}`);
-					let n = e.index;
-					if (n == null) throw console.error(e), Error("Expected array delta entry to have an `index` property");
-					if (typeof n != "number") throw Error(`Expected array delta entry \`index\` property to be a number but got ${n}`);
-					let r = t[n];
-					r == null ? t.push(e) : t[n] = this.accumulateDelta(r, e);
-				}
-				continue;
-			} else throw Error(`Unhandled record type: ${n}, deltaValue: ${r}, accValue: ${t}`);
-			e[n] = t;
-		}
-		return e;
-	}
-	_addRun(e) {
-		return e;
-	}
-	async _threadAssistantStream(e, t, n) {
-		return await this._createThreadAssistantStream(t, e, n);
-	}
-	async _runAssistantStream(e, t, n, r) {
-		return await this._createAssistantStream(t, e, n, r);
-	}
-	async _runToolAssistantStream(e, t, n, r) {
-		return await this._createToolAssistantStream(t, e, n, r);
 	}
 };
-ei = yi, ui = function(e) {
-	if (!this.ended) switch (g(this, si, e, "f"), _(this, H, "m", mi).call(this, e), e.event) {
+//#endregion
+//#region node_modules/openai/resources/beta/threads/runs/steps.mjs
+/**
+* Build Assistants that can call models and use tools.
+*
+* @deprecated The Assistants API is deprecated in favor of the Responses API
+*/
+var Steps = class extends APIResource {
+	/**
+	* Retrieves a run step.
+	*
+	* @deprecated The Assistants API is deprecated in favor of the Responses API
+	*/
+	retrieve(stepID, params, options) {
+		const { thread_id, run_id, ...query } = params;
+		return this._client.get(path$2`/threads/${thread_id}/runs/${run_id}/steps/${stepID}`, {
+			query,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Returns a list of run steps belonging to a run.
+	*
+	* @deprecated The Assistants API is deprecated in favor of the Responses API
+	*/
+	list(runID, params, options) {
+		const { thread_id, ...query } = params;
+		return this._client.getAPIList(path$2`/threads/${thread_id}/runs/${runID}/steps`, CursorPage, {
+			query,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/internal/utils/base64.mjs
+/**
+* Converts a Base64 encoded string to a Float32Array.
+* @param base64Str - The Base64 encoded string.
+* @returns An Array of numbers interpreted as Float32 values.
+*/
+var toFloat32Array = (base64Str) => {
+	if (typeof Buffer !== "undefined") {
+		const buf = Buffer.from(base64Str, "base64");
+		return Array.from(new Float32Array(buf.buffer, buf.byteOffset, buf.length / Float32Array.BYTES_PER_ELEMENT));
+	} else {
+		const binaryStr = atob(base64Str);
+		const len = binaryStr.length;
+		const bytes = new Uint8Array(len);
+		for (let i = 0; i < len; i++) bytes[i] = binaryStr.charCodeAt(i);
+		return Array.from(new Float32Array(bytes.buffer));
+	}
+};
+//#endregion
+//#region node_modules/openai/internal/utils/env.mjs
+/**
+* Read an environment variable.
+*
+* Trims beginning and trailing whitespace.
+*
+* Will return undefined if the environment variable doesn't exist or cannot be accessed.
+*/
+var readEnv = (env) => {
+	if (typeof globalThis.process !== "undefined") return globalThis.process.env?.[env]?.trim() || void 0;
+	if (typeof globalThis.Deno !== "undefined") return globalThis.Deno.env?.get?.(env)?.trim() || void 0;
+};
+//#endregion
+//#region node_modules/openai/lib/AssistantStream.mjs
+var _AssistantStream_instances, _a$1, _AssistantStream_events, _AssistantStream_runStepSnapshots, _AssistantStream_messageSnapshots, _AssistantStream_messageSnapshot, _AssistantStream_finalRun, _AssistantStream_currentContentIndex, _AssistantStream_currentContent, _AssistantStream_currentToolCallIndex, _AssistantStream_currentToolCall, _AssistantStream_currentEvent, _AssistantStream_currentRunSnapshot, _AssistantStream_currentRunStepSnapshot, _AssistantStream_addEvent, _AssistantStream_endRequest, _AssistantStream_handleMessage, _AssistantStream_handleRunStep, _AssistantStream_handleEvent, _AssistantStream_accumulateRunStep, _AssistantStream_accumulateMessage, _AssistantStream_accumulateContent, _AssistantStream_handleRun;
+var AssistantStream = class extends EventStream {
+	constructor() {
+		super(...arguments);
+		_AssistantStream_instances.add(this);
+		_AssistantStream_events.set(this, []);
+		_AssistantStream_runStepSnapshots.set(this, {});
+		_AssistantStream_messageSnapshots.set(this, {});
+		_AssistantStream_messageSnapshot.set(this, void 0);
+		_AssistantStream_finalRun.set(this, void 0);
+		_AssistantStream_currentContentIndex.set(this, void 0);
+		_AssistantStream_currentContent.set(this, void 0);
+		_AssistantStream_currentToolCallIndex.set(this, void 0);
+		_AssistantStream_currentToolCall.set(this, void 0);
+		_AssistantStream_currentEvent.set(this, void 0);
+		_AssistantStream_currentRunSnapshot.set(this, void 0);
+		_AssistantStream_currentRunStepSnapshot.set(this, void 0);
+	}
+	[(_AssistantStream_events = /* @__PURE__ */ new WeakMap(), _AssistantStream_runStepSnapshots = /* @__PURE__ */ new WeakMap(), _AssistantStream_messageSnapshots = /* @__PURE__ */ new WeakMap(), _AssistantStream_messageSnapshot = /* @__PURE__ */ new WeakMap(), _AssistantStream_finalRun = /* @__PURE__ */ new WeakMap(), _AssistantStream_currentContentIndex = /* @__PURE__ */ new WeakMap(), _AssistantStream_currentContent = /* @__PURE__ */ new WeakMap(), _AssistantStream_currentToolCallIndex = /* @__PURE__ */ new WeakMap(), _AssistantStream_currentToolCall = /* @__PURE__ */ new WeakMap(), _AssistantStream_currentEvent = /* @__PURE__ */ new WeakMap(), _AssistantStream_currentRunSnapshot = /* @__PURE__ */ new WeakMap(), _AssistantStream_currentRunStepSnapshot = /* @__PURE__ */ new WeakMap(), _AssistantStream_instances = /* @__PURE__ */ new WeakSet(), Symbol.asyncIterator)]() {
+		const pushQueue = [];
+		const readQueue = [];
+		let done = false;
+		this.on("event", (event) => {
+			const reader = readQueue.shift();
+			if (reader) reader.resolve(event);
+			else pushQueue.push(event);
+		});
+		this.on("end", () => {
+			done = true;
+			for (const reader of readQueue) reader.resolve(void 0);
+			readQueue.length = 0;
+		});
+		this.on("abort", (err) => {
+			done = true;
+			for (const reader of readQueue) reader.reject(err);
+			readQueue.length = 0;
+		});
+		this.on("error", (err) => {
+			done = true;
+			for (const reader of readQueue) reader.reject(err);
+			readQueue.length = 0;
+		});
+		return {
+			next: async () => {
+				if (!pushQueue.length) {
+					if (done) return {
+						value: void 0,
+						done: true
+					};
+					return new Promise((resolve, reject) => readQueue.push({
+						resolve,
+						reject
+					})).then((chunk) => chunk ? {
+						value: chunk,
+						done: false
+					} : {
+						value: void 0,
+						done: true
+					});
+				}
+				return {
+					value: pushQueue.shift(),
+					done: false
+				};
+			},
+			return: async () => {
+				this.abort();
+				return {
+					value: void 0,
+					done: true
+				};
+			}
+		};
+	}
+	static fromReadableStream(stream) {
+		const runner = new _a$1();
+		runner._run(() => runner._fromReadableStream(stream));
+		return runner;
+	}
+	async _fromReadableStream(readableStream, options) {
+		const signal = options?.signal;
+		if (signal) {
+			if (signal.aborted) this.controller.abort();
+			signal.addEventListener("abort", () => this.controller.abort());
+		}
+		this._connected();
+		const stream = Stream.fromReadableStream(readableStream, this.controller);
+		for await (const event of stream) __classPrivateFieldGet(this, _AssistantStream_instances, "m", _AssistantStream_addEvent).call(this, event);
+		if (stream.controller.signal?.aborted) throw new APIUserAbortError();
+		return this._addRun(__classPrivateFieldGet(this, _AssistantStream_instances, "m", _AssistantStream_endRequest).call(this));
+	}
+	toReadableStream() {
+		return new Stream(this[Symbol.asyncIterator].bind(this), this.controller).toReadableStream();
+	}
+	static createToolAssistantStream(runId, runs, params, options) {
+		const runner = new _a$1();
+		runner._run(() => runner._runToolAssistantStream(runId, runs, params, {
+			...options,
+			headers: {
+				...options?.headers,
+				"X-Stainless-Helper-Method": "stream"
+			}
+		}));
+		return runner;
+	}
+	async _createToolAssistantStream(run, runId, params, options) {
+		const signal = options?.signal;
+		if (signal) {
+			if (signal.aborted) this.controller.abort();
+			signal.addEventListener("abort", () => this.controller.abort());
+		}
+		const body = {
+			...params,
+			stream: true
+		};
+		const stream = await run.submitToolOutputs(runId, body, {
+			...options,
+			signal: this.controller.signal
+		});
+		this._connected();
+		for await (const event of stream) __classPrivateFieldGet(this, _AssistantStream_instances, "m", _AssistantStream_addEvent).call(this, event);
+		if (stream.controller.signal?.aborted) throw new APIUserAbortError();
+		return this._addRun(__classPrivateFieldGet(this, _AssistantStream_instances, "m", _AssistantStream_endRequest).call(this));
+	}
+	static createThreadAssistantStream(params, thread, options) {
+		const runner = new _a$1();
+		runner._run(() => runner._threadAssistantStream(params, thread, {
+			...options,
+			headers: {
+				...options?.headers,
+				"X-Stainless-Helper-Method": "stream"
+			}
+		}));
+		return runner;
+	}
+	static createAssistantStream(threadId, runs, params, options) {
+		const runner = new _a$1();
+		runner._run(() => runner._runAssistantStream(threadId, runs, params, {
+			...options,
+			headers: {
+				...options?.headers,
+				"X-Stainless-Helper-Method": "stream"
+			}
+		}));
+		return runner;
+	}
+	currentEvent() {
+		return __classPrivateFieldGet(this, _AssistantStream_currentEvent, "f");
+	}
+	currentRun() {
+		return __classPrivateFieldGet(this, _AssistantStream_currentRunSnapshot, "f");
+	}
+	currentMessageSnapshot() {
+		return __classPrivateFieldGet(this, _AssistantStream_messageSnapshot, "f");
+	}
+	currentRunStepSnapshot() {
+		return __classPrivateFieldGet(this, _AssistantStream_currentRunStepSnapshot, "f");
+	}
+	async finalRunSteps() {
+		await this.done();
+		return Object.values(__classPrivateFieldGet(this, _AssistantStream_runStepSnapshots, "f"));
+	}
+	async finalMessages() {
+		await this.done();
+		return Object.values(__classPrivateFieldGet(this, _AssistantStream_messageSnapshots, "f"));
+	}
+	async finalRun() {
+		await this.done();
+		if (!__classPrivateFieldGet(this, _AssistantStream_finalRun, "f")) throw Error("Final run was not received.");
+		return __classPrivateFieldGet(this, _AssistantStream_finalRun, "f");
+	}
+	async _createThreadAssistantStream(thread, params, options) {
+		const signal = options?.signal;
+		if (signal) {
+			if (signal.aborted) this.controller.abort();
+			signal.addEventListener("abort", () => this.controller.abort());
+		}
+		const body = {
+			...params,
+			stream: true
+		};
+		const stream = await thread.createAndRun(body, {
+			...options,
+			signal: this.controller.signal
+		});
+		this._connected();
+		for await (const event of stream) __classPrivateFieldGet(this, _AssistantStream_instances, "m", _AssistantStream_addEvent).call(this, event);
+		if (stream.controller.signal?.aborted) throw new APIUserAbortError();
+		return this._addRun(__classPrivateFieldGet(this, _AssistantStream_instances, "m", _AssistantStream_endRequest).call(this));
+	}
+	async _createAssistantStream(run, threadId, params, options) {
+		const signal = options?.signal;
+		if (signal) {
+			if (signal.aborted) this.controller.abort();
+			signal.addEventListener("abort", () => this.controller.abort());
+		}
+		const body = {
+			...params,
+			stream: true
+		};
+		const stream = await run.create(threadId, body, {
+			...options,
+			signal: this.controller.signal
+		});
+		this._connected();
+		for await (const event of stream) __classPrivateFieldGet(this, _AssistantStream_instances, "m", _AssistantStream_addEvent).call(this, event);
+		if (stream.controller.signal?.aborted) throw new APIUserAbortError();
+		return this._addRun(__classPrivateFieldGet(this, _AssistantStream_instances, "m", _AssistantStream_endRequest).call(this));
+	}
+	static accumulateDelta(acc, delta) {
+		for (const [key, deltaValue] of Object.entries(delta)) {
+			if (!acc.hasOwnProperty(key)) {
+				acc[key] = deltaValue;
+				continue;
+			}
+			let accValue = acc[key];
+			if (accValue === null || accValue === void 0) {
+				acc[key] = deltaValue;
+				continue;
+			}
+			if (key === "index" || key === "type") {
+				acc[key] = deltaValue;
+				continue;
+			}
+			if (typeof accValue === "string" && typeof deltaValue === "string") accValue += deltaValue;
+			else if (typeof accValue === "number" && typeof deltaValue === "number") accValue += deltaValue;
+			else if (isObj(accValue) && isObj(deltaValue)) accValue = this.accumulateDelta(accValue, deltaValue);
+			else if (Array.isArray(accValue) && Array.isArray(deltaValue)) {
+				if (accValue.every((x) => typeof x === "string" || typeof x === "number")) {
+					accValue.push(...deltaValue);
+					continue;
+				}
+				for (const deltaEntry of deltaValue) {
+					if (!isObj(deltaEntry)) throw new Error(`Expected array delta entry to be an object but got: ${deltaEntry}`);
+					const index = deltaEntry["index"];
+					if (index == null) {
+						console.error(deltaEntry);
+						throw new Error("Expected array delta entry to have an `index` property");
+					}
+					if (typeof index !== "number") throw new Error(`Expected array delta entry \`index\` property to be a number but got ${index}`);
+					const accEntry = accValue[index];
+					if (accEntry == null) accValue.push(deltaEntry);
+					else accValue[index] = this.accumulateDelta(accEntry, deltaEntry);
+				}
+				continue;
+			} else throw Error(`Unhandled record type: ${key}, deltaValue: ${deltaValue}, accValue: ${accValue}`);
+			acc[key] = accValue;
+		}
+		return acc;
+	}
+	_addRun(run) {
+		return run;
+	}
+	async _threadAssistantStream(params, thread, options) {
+		return await this._createThreadAssistantStream(thread, params, options);
+	}
+	async _runAssistantStream(threadId, runs, params, options) {
+		return await this._createAssistantStream(runs, threadId, params, options);
+	}
+	async _runToolAssistantStream(runId, runs, params, options) {
+		return await this._createToolAssistantStream(runs, runId, params, options);
+	}
+};
+_a$1 = AssistantStream, _AssistantStream_addEvent = function _AssistantStream_addEvent(event) {
+	if (this.ended) return;
+	__classPrivateFieldSet(this, _AssistantStream_currentEvent, event, "f");
+	__classPrivateFieldGet(this, _AssistantStream_instances, "m", _AssistantStream_handleEvent).call(this, event);
+	switch (event.event) {
 		case "thread.created": break;
 		case "thread.run.created":
 		case "thread.run.queued":
@@ -3272,7 +6018,7 @@ ei = yi, ui = function(e) {
 		case "thread.run.cancelling":
 		case "thread.run.cancelled":
 		case "thread.run.expired":
-			_(this, H, "m", vi).call(this, e);
+			__classPrivateFieldGet(this, _AssistantStream_instances, "m", _AssistantStream_handleRun).call(this, event);
 			break;
 		case "thread.run.step.created":
 		case "thread.run.step.in_progress":
@@ -3281,136 +6027,160 @@ ei = yi, ui = function(e) {
 		case "thread.run.step.failed":
 		case "thread.run.step.cancelled":
 		case "thread.run.step.expired":
-			_(this, H, "m", pi).call(this, e);
+			__classPrivateFieldGet(this, _AssistantStream_instances, "m", _AssistantStream_handleRunStep).call(this, event);
 			break;
 		case "thread.message.created":
 		case "thread.message.in_progress":
 		case "thread.message.delta":
 		case "thread.message.completed":
 		case "thread.message.incomplete":
-			_(this, H, "m", fi).call(this, e);
+			__classPrivateFieldGet(this, _AssistantStream_instances, "m", _AssistantStream_handleMessage).call(this, event);
 			break;
-		case "error": throw Error("Encountered an error event in event processing - errors should be processed earlier");
+		case "error": throw new Error("Encountered an error event in event processing - errors should be processed earlier");
 		default:
 	}
-}, di = function() {
-	if (this.ended) throw new b("stream has ended, this shouldn't happen");
-	if (!_(this, ri, "f")) throw Error("Final run has not been received");
-	return _(this, ri, "f");
-}, fi = function(e) {
-	let [t, n] = _(this, H, "m", gi).call(this, e, _(this, W, "f"));
-	g(this, W, t, "f"), _(this, ni, "f")[t.id] = t;
-	for (let e of n) {
-		let n = t.content[e.index];
-		n?.type == "text" && this._emit("textCreated", n.text);
+}, _AssistantStream_endRequest = function _AssistantStream_endRequest() {
+	if (this.ended) throw new OpenAIError(`stream has ended, this shouldn't happen`);
+	if (!__classPrivateFieldGet(this, _AssistantStream_finalRun, "f")) throw Error("Final run has not been received");
+	return __classPrivateFieldGet(this, _AssistantStream_finalRun, "f");
+}, _AssistantStream_handleMessage = function _AssistantStream_handleMessage(event) {
+	const [accumulatedMessage, newContent] = __classPrivateFieldGet(this, _AssistantStream_instances, "m", _AssistantStream_accumulateMessage).call(this, event, __classPrivateFieldGet(this, _AssistantStream_messageSnapshot, "f"));
+	__classPrivateFieldSet(this, _AssistantStream_messageSnapshot, accumulatedMessage, "f");
+	__classPrivateFieldGet(this, _AssistantStream_messageSnapshots, "f")[accumulatedMessage.id] = accumulatedMessage;
+	for (const content of newContent) {
+		const snapshotContent = accumulatedMessage.content[content.index];
+		if (snapshotContent?.type == "text") this._emit("textCreated", snapshotContent.text);
 	}
-	switch (e.event) {
+	switch (event.event) {
 		case "thread.message.created":
-			this._emit("messageCreated", e.data);
+			this._emit("messageCreated", event.data);
 			break;
 		case "thread.message.in_progress": break;
 		case "thread.message.delta":
-			if (this._emit("messageDelta", e.data.delta, t), e.data.delta.content) for (let n of e.data.delta.content) {
-				if (n.type == "text" && n.text) {
-					let e = n.text, r = t.content[n.index];
-					if (r && r.type == "text") this._emit("textDelta", e, r.text);
+			this._emit("messageDelta", event.data.delta, accumulatedMessage);
+			if (event.data.delta.content) for (const content of event.data.delta.content) {
+				if (content.type == "text" && content.text) {
+					let textDelta = content.text;
+					let snapshot = accumulatedMessage.content[content.index];
+					if (snapshot && snapshot.type == "text") this._emit("textDelta", textDelta, snapshot.text);
 					else throw Error("The snapshot associated with this text delta is not text or missing");
 				}
-				if (n.index != _(this, ii, "f")) {
-					if (_(this, ai, "f")) switch (_(this, ai, "f").type) {
+				if (content.index != __classPrivateFieldGet(this, _AssistantStream_currentContentIndex, "f")) {
+					if (__classPrivateFieldGet(this, _AssistantStream_currentContent, "f")) switch (__classPrivateFieldGet(this, _AssistantStream_currentContent, "f").type) {
 						case "text":
-							this._emit("textDone", _(this, ai, "f").text, _(this, W, "f"));
+							this._emit("textDone", __classPrivateFieldGet(this, _AssistantStream_currentContent, "f").text, __classPrivateFieldGet(this, _AssistantStream_messageSnapshot, "f"));
 							break;
 						case "image_file":
-							this._emit("imageFileDone", _(this, ai, "f").image_file, _(this, W, "f"));
+							this._emit("imageFileDone", __classPrivateFieldGet(this, _AssistantStream_currentContent, "f").image_file, __classPrivateFieldGet(this, _AssistantStream_messageSnapshot, "f"));
 							break;
 					}
-					g(this, ii, n.index, "f");
+					__classPrivateFieldSet(this, _AssistantStream_currentContentIndex, content.index, "f");
 				}
-				g(this, ai, t.content[n.index], "f");
+				__classPrivateFieldSet(this, _AssistantStream_currentContent, accumulatedMessage.content[content.index], "f");
 			}
 			break;
 		case "thread.message.completed":
 		case "thread.message.incomplete":
-			if (_(this, ii, "f") !== void 0) {
-				let t = e.data.content[_(this, ii, "f")];
-				if (t) switch (t.type) {
+			if (__classPrivateFieldGet(this, _AssistantStream_currentContentIndex, "f") !== void 0) {
+				const currentContent = event.data.content[__classPrivateFieldGet(this, _AssistantStream_currentContentIndex, "f")];
+				if (currentContent) switch (currentContent.type) {
 					case "image_file":
-						this._emit("imageFileDone", t.image_file, _(this, W, "f"));
+						this._emit("imageFileDone", currentContent.image_file, __classPrivateFieldGet(this, _AssistantStream_messageSnapshot, "f"));
 						break;
 					case "text":
-						this._emit("textDone", t.text, _(this, W, "f"));
+						this._emit("textDone", currentContent.text, __classPrivateFieldGet(this, _AssistantStream_messageSnapshot, "f"));
 						break;
 				}
 			}
-			_(this, W, "f") && this._emit("messageDone", e.data), g(this, W, void 0, "f");
+			if (__classPrivateFieldGet(this, _AssistantStream_messageSnapshot, "f")) this._emit("messageDone", event.data);
+			__classPrivateFieldSet(this, _AssistantStream_messageSnapshot, void 0, "f");
 	}
-}, pi = function(e) {
-	let t = _(this, H, "m", hi).call(this, e);
-	switch (g(this, li, t, "f"), e.event) {
+}, _AssistantStream_handleRunStep = function _AssistantStream_handleRunStep(event) {
+	const accumulatedRunStep = __classPrivateFieldGet(this, _AssistantStream_instances, "m", _AssistantStream_accumulateRunStep).call(this, event);
+	__classPrivateFieldSet(this, _AssistantStream_currentRunStepSnapshot, accumulatedRunStep, "f");
+	switch (event.event) {
 		case "thread.run.step.created":
-			this._emit("runStepCreated", e.data);
+			this._emit("runStepCreated", event.data);
 			break;
 		case "thread.run.step.delta":
-			let n = e.data.delta;
-			if (n.step_details && n.step_details.type == "tool_calls" && n.step_details.tool_calls && t.step_details.type == "tool_calls") for (let e of n.step_details.tool_calls) e.index == _(this, oi, "f") ? this._emit("toolCallDelta", e, t.step_details.tool_calls[e.index]) : (_(this, G, "f") && this._emit("toolCallDone", _(this, G, "f")), g(this, oi, e.index, "f"), g(this, G, t.step_details.tool_calls[e.index], "f"), _(this, G, "f") && this._emit("toolCallCreated", _(this, G, "f")));
-			this._emit("runStepDelta", e.data.delta, t);
+			const delta = event.data.delta;
+			if (delta.step_details && delta.step_details.type == "tool_calls" && delta.step_details.tool_calls && accumulatedRunStep.step_details.type == "tool_calls") for (const toolCall of delta.step_details.tool_calls) if (toolCall.index == __classPrivateFieldGet(this, _AssistantStream_currentToolCallIndex, "f")) this._emit("toolCallDelta", toolCall, accumulatedRunStep.step_details.tool_calls[toolCall.index]);
+			else {
+				if (__classPrivateFieldGet(this, _AssistantStream_currentToolCall, "f")) this._emit("toolCallDone", __classPrivateFieldGet(this, _AssistantStream_currentToolCall, "f"));
+				__classPrivateFieldSet(this, _AssistantStream_currentToolCallIndex, toolCall.index, "f");
+				__classPrivateFieldSet(this, _AssistantStream_currentToolCall, accumulatedRunStep.step_details.tool_calls[toolCall.index], "f");
+				if (__classPrivateFieldGet(this, _AssistantStream_currentToolCall, "f")) this._emit("toolCallCreated", __classPrivateFieldGet(this, _AssistantStream_currentToolCall, "f"));
+			}
+			this._emit("runStepDelta", event.data.delta, accumulatedRunStep);
 			break;
 		case "thread.run.step.completed":
 		case "thread.run.step.failed":
 		case "thread.run.step.cancelled":
 		case "thread.run.step.expired":
-			g(this, li, void 0, "f"), e.data.step_details.type == "tool_calls" && _(this, G, "f") && (this._emit("toolCallDone", _(this, G, "f")), g(this, G, void 0, "f")), this._emit("runStepDone", e.data, t);
+			__classPrivateFieldSet(this, _AssistantStream_currentRunStepSnapshot, void 0, "f");
+			if (event.data.step_details.type == "tool_calls") {
+				if (__classPrivateFieldGet(this, _AssistantStream_currentToolCall, "f")) {
+					this._emit("toolCallDone", __classPrivateFieldGet(this, _AssistantStream_currentToolCall, "f"));
+					__classPrivateFieldSet(this, _AssistantStream_currentToolCall, void 0, "f");
+				}
+			}
+			this._emit("runStepDone", event.data, accumulatedRunStep);
 			break;
 		case "thread.run.step.in_progress": break;
 	}
-}, mi = function(e) {
-	_(this, ti, "f").push(e), this._emit("event", e);
-}, hi = function(e) {
-	switch (e.event) {
-		case "thread.run.step.created": return _(this, U, "f")[e.data.id] = e.data, e.data;
+}, _AssistantStream_handleEvent = function _AssistantStream_handleEvent(event) {
+	__classPrivateFieldGet(this, _AssistantStream_events, "f").push(event);
+	this._emit("event", event);
+}, _AssistantStream_accumulateRunStep = function _AssistantStream_accumulateRunStep(event) {
+	switch (event.event) {
+		case "thread.run.step.created":
+			__classPrivateFieldGet(this, _AssistantStream_runStepSnapshots, "f")[event.data.id] = event.data;
+			return event.data;
 		case "thread.run.step.delta":
-			let t = _(this, U, "f")[e.data.id];
-			if (!t) throw Error("Received a RunStepDelta before creation of a snapshot");
-			let n = e.data;
-			if (n.delta) {
-				let r = ei.accumulateDelta(t, n.delta);
-				_(this, U, "f")[e.data.id] = r;
+			let snapshot = __classPrivateFieldGet(this, _AssistantStream_runStepSnapshots, "f")[event.data.id];
+			if (!snapshot) throw Error("Received a RunStepDelta before creation of a snapshot");
+			let data = event.data;
+			if (data.delta) {
+				const accumulated = _a$1.accumulateDelta(snapshot, data.delta);
+				__classPrivateFieldGet(this, _AssistantStream_runStepSnapshots, "f")[event.data.id] = accumulated;
 			}
-			return _(this, U, "f")[e.data.id];
+			return __classPrivateFieldGet(this, _AssistantStream_runStepSnapshots, "f")[event.data.id];
 		case "thread.run.step.completed":
 		case "thread.run.step.failed":
 		case "thread.run.step.cancelled":
 		case "thread.run.step.expired":
 		case "thread.run.step.in_progress":
-			_(this, U, "f")[e.data.id] = e.data;
+			__classPrivateFieldGet(this, _AssistantStream_runStepSnapshots, "f")[event.data.id] = event.data;
 			break;
 	}
-	if (_(this, U, "f")[e.data.id]) return _(this, U, "f")[e.data.id];
-	throw Error("No snapshot available");
-}, gi = function(e, t) {
-	let n = [];
-	switch (e.event) {
-		case "thread.message.created": return [e.data, n];
+	if (__classPrivateFieldGet(this, _AssistantStream_runStepSnapshots, "f")[event.data.id]) return __classPrivateFieldGet(this, _AssistantStream_runStepSnapshots, "f")[event.data.id];
+	throw new Error("No snapshot available");
+}, _AssistantStream_accumulateMessage = function _AssistantStream_accumulateMessage(event, snapshot) {
+	let newContent = [];
+	switch (event.event) {
+		case "thread.message.created": return [event.data, newContent];
 		case "thread.message.delta":
-			if (!t) throw Error("Received a delta with no existing snapshot (there should be one from message creation)");
-			let r = e.data;
-			if (r.delta.content) for (let e of r.delta.content) if (e.index in t.content) {
-				let n = t.content[e.index];
-				t.content[e.index] = _(this, H, "m", _i).call(this, e, n);
-			} else t.content[e.index] = e, n.push(e);
-			return [t, n];
+			if (!snapshot) throw Error("Received a delta with no existing snapshot (there should be one from message creation)");
+			let data = event.data;
+			if (data.delta.content) for (const contentElement of data.delta.content) if (contentElement.index in snapshot.content) {
+				let currentContent = snapshot.content[contentElement.index];
+				snapshot.content[contentElement.index] = __classPrivateFieldGet(this, _AssistantStream_instances, "m", _AssistantStream_accumulateContent).call(this, contentElement, currentContent);
+			} else {
+				snapshot.content[contentElement.index] = contentElement;
+				newContent.push(contentElement);
+			}
+			return [snapshot, newContent];
 		case "thread.message.in_progress":
 		case "thread.message.completed":
-		case "thread.message.incomplete":
-			if (t) return [t, n];
-			throw Error("Received thread message event with no existing snapshot");
+		case "thread.message.incomplete": if (snapshot) return [snapshot, newContent];
+		else throw Error("Received thread message event with no existing snapshot");
 	}
 	throw Error("Tried to accumulate a non-message event");
-}, _i = function(e, t) {
-	return ei.accumulateDelta(t, e);
-}, vi = function(e) {
-	switch (g(this, ci, e.data, "f"), e.event) {
+}, _AssistantStream_accumulateContent = function _AssistantStream_accumulateContent(contentElement, currentContent) {
+	return _a$1.accumulateDelta(currentContent, contentElement);
+}, _AssistantStream_handleRun = function _AssistantStream_handleRun(event) {
+	__classPrivateFieldSet(this, _AssistantStream_currentRunSnapshot, event.data, "f");
+	switch (event.event) {
 		case "thread.run.created": break;
 		case "thread.run.queued": break;
 		case "thread.run.in_progress": break;
@@ -3420,1572 +6190,2739 @@ ei = yi, ui = function(e) {
 		case "thread.run.completed":
 		case "thread.run.expired":
 		case "thread.run.incomplete":
-			g(this, ri, e.data, "f"), _(this, G, "f") && (this._emit("toolCallDone", _(this, G, "f")), g(this, G, void 0, "f"));
+			__classPrivateFieldSet(this, _AssistantStream_finalRun, event.data, "f");
+			if (__classPrivateFieldGet(this, _AssistantStream_currentToolCall, "f")) {
+				this._emit("toolCallDone", __classPrivateFieldGet(this, _AssistantStream_currentToolCall, "f"));
+				__classPrivateFieldSet(this, _AssistantStream_currentToolCall, void 0, "f");
+			}
 			break;
 		case "thread.run.cancelling": break;
 	}
 };
 //#endregion
 //#region node_modules/openai/resources/beta/threads/runs/runs.mjs
-var bi = class extends P {
+/**
+* Build Assistants that can call models and use tools.
+*
+* @deprecated The Assistants API is deprecated in favor of the Responses API
+*/
+var Runs$1 = class extends APIResource {
 	constructor() {
-		super(...arguments), this.steps = new Zr(this._client);
+		super(...arguments);
+		this.steps = new Steps(this._client);
 	}
-	create(e, t, n) {
-		let { include: r, ...i } = t;
-		return this._client.post(F`/threads/${e}/runs`, {
-			query: { include: r },
-			body: i,
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			stream: t.stream ?? !1,
-			__synthesizeEventData: !0,
-			__security: { bearerAuth: !0 }
+	create(threadID, params, options) {
+		const { include, ...body } = params;
+		return this._client.post(path$2`/threads/${threadID}/runs`, {
+			query: { include },
+			body,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			stream: params.stream ?? false,
+			__synthesizeEventData: true,
+			__security: { bearerAuth: true }
 		});
 	}
-	retrieve(e, t, n) {
-		let { thread_id: r } = t;
-		return this._client.get(F`/threads/${r}/runs/${e}`, {
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
+	/**
+	* Retrieves a run.
+	*
+	* @deprecated The Assistants API is deprecated in favor of the Responses API
+	*/
+	retrieve(runID, params, options) {
+		const { thread_id } = params;
+		return this._client.get(path$2`/threads/${thread_id}/runs/${runID}`, {
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
-	update(e, t, n) {
-		let { thread_id: r, ...i } = t;
-		return this._client.post(F`/threads/${r}/runs/${e}`, {
-			body: i,
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
+	/**
+	* Modifies a run.
+	*
+	* @deprecated The Assistants API is deprecated in favor of the Responses API
+	*/
+	update(runID, params, options) {
+		const { thread_id, ...body } = params;
+		return this._client.post(path$2`/threads/${thread_id}/runs/${runID}`, {
+			body,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
-	list(e, t = {}, n) {
-		return this._client.getAPIList(F`/threads/${e}/runs`, A, {
-			query: t,
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
+	/**
+	* Returns a list of runs belonging to a thread.
+	*
+	* @deprecated The Assistants API is deprecated in favor of the Responses API
+	*/
+	list(threadID, query = {}, options) {
+		return this._client.getAPIList(path$2`/threads/${threadID}/runs`, CursorPage, {
+			query,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
-	cancel(e, t, n) {
-		let { thread_id: r } = t;
-		return this._client.post(F`/threads/${r}/runs/${e}/cancel`, {
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
+	/**
+	* Cancels a run that is `in_progress`.
+	*
+	* @deprecated The Assistants API is deprecated in favor of the Responses API
+	*/
+	cancel(runID, params, options) {
+		const { thread_id } = params;
+		return this._client.post(path$2`/threads/${thread_id}/runs/${runID}/cancel`, {
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
-	async createAndPoll(e, t, n) {
-		let r = await this.create(e, t, n);
-		return await this.poll(r.id, { thread_id: e }, n);
+	/**
+	* A helper to create a run an poll for a terminal state. More information on Run
+	* lifecycles can be found here:
+	* https://platform.openai.com/docs/assistants/how-it-works/runs-and-run-steps
+	*/
+	async createAndPoll(threadId, body, options) {
+		const run = await this.create(threadId, body, options);
+		return await this.poll(run.id, { thread_id: threadId }, options);
 	}
-	createAndStream(e, t, n) {
-		return yi.createAssistantStream(e, this._client.beta.threads.runs, t, n);
+	/**
+	* Create a Run stream
+	*
+	* @deprecated use `stream` instead
+	*/
+	createAndStream(threadId, body, options) {
+		return AssistantStream.createAssistantStream(threadId, this._client.beta.threads.runs, body, options);
 	}
-	async poll(e, t, n) {
-		let r = V([n?.headers, {
+	/**
+	* A helper to poll a run status until it reaches a terminal state. More
+	* information on Run lifecycles can be found here:
+	* https://platform.openai.com/docs/assistants/how-it-works/runs-and-run-steps
+	*/
+	async poll(runId, params, options) {
+		const headers = buildHeaders([options?.headers, {
 			"X-Stainless-Poll-Helper": "true",
-			"X-Stainless-Custom-Poll-Interval": n?.pollIntervalMs?.toString() ?? void 0
+			"X-Stainless-Custom-Poll-Interval": options?.pollIntervalMs?.toString() ?? void 0
 		}]);
-		for (;;) {
-			let { data: i, response: a } = await this.retrieve(e, t, {
-				...n,
+		while (true) {
+			const { data: run, response } = await this.retrieve(runId, params, {
+				...options,
 				headers: {
-					...n?.headers,
-					...r
+					...options?.headers,
+					...headers
 				}
 			}).withResponse();
-			switch (i.status) {
+			switch (run.status) {
 				case "queued":
 				case "in_progress":
 				case "cancelling":
-					let e = 5e3;
-					if (n?.pollIntervalMs) e = n.pollIntervalMs;
+					let sleepInterval = 5e3;
+					if (options?.pollIntervalMs) sleepInterval = options.pollIntervalMs;
 					else {
-						let t = a.headers.get("openai-poll-after-ms");
-						if (t) {
-							let n = parseInt(t);
-							isNaN(n) || (e = n);
+						const headerInterval = response.headers.get("openai-poll-after-ms");
+						if (headerInterval) {
+							const headerIntervalMs = parseInt(headerInterval);
+							if (!isNaN(headerIntervalMs)) sleepInterval = headerIntervalMs;
 						}
 					}
-					await we(e);
+					await sleep(sleepInterval);
 					break;
 				case "requires_action":
 				case "incomplete":
 				case "cancelled":
 				case "completed":
 				case "failed":
-				case "expired": return i;
+				case "expired": return run;
 			}
 		}
 	}
-	stream(e, t, n) {
-		return yi.createAssistantStream(e, this._client.beta.threads.runs, t, n);
+	/**
+	* Create a Run stream
+	*/
+	stream(threadId, body, options) {
+		return AssistantStream.createAssistantStream(threadId, this._client.beta.threads.runs, body, options);
 	}
-	submitToolOutputs(e, t, n) {
-		let { thread_id: r, ...i } = t;
-		return this._client.post(F`/threads/${r}/runs/${e}/submit_tool_outputs`, {
-			body: i,
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			stream: t.stream ?? !1,
-			__synthesizeEventData: !0,
-			__security: { bearerAuth: !0 }
+	submitToolOutputs(runID, params, options) {
+		const { thread_id, ...body } = params;
+		return this._client.post(path$2`/threads/${thread_id}/runs/${runID}/submit_tool_outputs`, {
+			body,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			stream: params.stream ?? false,
+			__synthesizeEventData: true,
+			__security: { bearerAuth: true }
 		});
 	}
-	async submitToolOutputsAndPoll(e, t, n) {
-		let r = await this.submitToolOutputs(e, t, n);
-		return await this.poll(r.id, t, n);
+	/**
+	* A helper to submit a tool output to a run and poll for a terminal run state.
+	* More information on Run lifecycles can be found here:
+	* https://platform.openai.com/docs/assistants/how-it-works/runs-and-run-steps
+	*/
+	async submitToolOutputsAndPoll(runId, params, options) {
+		const run = await this.submitToolOutputs(runId, params, options);
+		return await this.poll(run.id, params, options);
 	}
-	submitToolOutputsStream(e, t, n) {
-		return yi.createToolAssistantStream(e, this._client.beta.threads.runs, t, n);
+	/**
+	* Submit the tool outputs from a previous run and stream the run to a terminal
+	* state. More information on Run lifecycles can be found here:
+	* https://platform.openai.com/docs/assistants/how-it-works/runs-and-run-steps
+	*/
+	submitToolOutputsStream(runId, params, options) {
+		return AssistantStream.createToolAssistantStream(runId, this._client.beta.threads.runs, params, options);
 	}
 };
-bi.Steps = Zr;
+Runs$1.Steps = Steps;
 //#endregion
 //#region node_modules/openai/resources/beta/threads/threads.mjs
-var xi = class extends P {
+/**
+* Build Assistants that can call models and use tools.
+*
+* @deprecated The Assistants API is deprecated in favor of the Responses API
+*/
+var Threads = class extends APIResource {
 	constructor() {
-		super(...arguments), this.runs = new bi(this._client), this.messages = new Xr(this._client);
+		super(...arguments);
+		this.runs = new Runs$1(this._client);
+		this.messages = new Messages(this._client);
 	}
-	create(e = {}, t) {
+	/**
+	* Create a thread.
+	*
+	* @deprecated The Assistants API is deprecated in favor of the Responses API
+	*/
+	create(body = {}, options) {
 		return this._client.post("/threads", {
-			body: e,
-			...t,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, t?.headers]),
-			__security: { bearerAuth: !0 }
+			body,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
-	retrieve(e, t) {
-		return this._client.get(F`/threads/${e}`, {
-			...t,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, t?.headers]),
-			__security: { bearerAuth: !0 }
+	/**
+	* Retrieves a thread.
+	*
+	* @deprecated The Assistants API is deprecated in favor of the Responses API
+	*/
+	retrieve(threadID, options) {
+		return this._client.get(path$2`/threads/${threadID}`, {
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
-	update(e, t, n) {
-		return this._client.post(F`/threads/${e}`, {
-			body: t,
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
+	/**
+	* Modifies a thread.
+	*
+	* @deprecated The Assistants API is deprecated in favor of the Responses API
+	*/
+	update(threadID, body, options) {
+		return this._client.post(path$2`/threads/${threadID}`, {
+			body,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
-	delete(e, t) {
-		return this._client.delete(F`/threads/${e}`, {
-			...t,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, t?.headers]),
-			__security: { bearerAuth: !0 }
+	/**
+	* Delete a thread.
+	*
+	* @deprecated The Assistants API is deprecated in favor of the Responses API
+	*/
+	delete(threadID, options) {
+		return this._client.delete(path$2`/threads/${threadID}`, {
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
-	createAndRun(e, t) {
+	createAndRun(body, options) {
 		return this._client.post("/threads/runs", {
-			body: e,
-			...t,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, t?.headers]),
-			stream: e.stream ?? !1,
-			__synthesizeEventData: !0,
-			__security: { bearerAuth: !0 }
+			body,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			stream: body.stream ?? false,
+			__synthesizeEventData: true,
+			__security: { bearerAuth: true }
 		});
 	}
-	async createAndRunPoll(e, t) {
-		let n = await this.createAndRun(e, t);
-		return await this.runs.poll(n.id, { thread_id: n.thread_id }, t);
+	/**
+	* A helper to create a thread, start a run and then poll for a terminal state.
+	* More information on Run lifecycles can be found here:
+	* https://platform.openai.com/docs/assistants/how-it-works/runs-and-run-steps
+	*/
+	async createAndRunPoll(body, options) {
+		const run = await this.createAndRun(body, options);
+		return await this.runs.poll(run.id, { thread_id: run.thread_id }, options);
 	}
-	createAndRunStream(e, t) {
-		return yi.createThreadAssistantStream(e, this._client.beta.threads, t);
+	/**
+	* Create a thread and stream the run back
+	*/
+	createAndRunStream(body, options) {
+		return AssistantStream.createThreadAssistantStream(body, this._client.beta.threads, options);
 	}
 };
-xi.Runs = bi, xi.Messages = Xr;
+Threads.Runs = Runs$1;
+Threads.Messages = Messages;
 //#endregion
 //#region node_modules/openai/resources/beta/beta.mjs
-var Si = class extends P {
+var Beta = class extends APIResource {
 	constructor() {
-		super(...arguments), this.realtime = new Kr(this._client), this.chatkit = new Yr(this._client), this.assistants = new Ur(this._client), this.threads = new xi(this._client);
+		super(...arguments);
+		this.realtime = new Realtime$1(this._client);
+		this.chatkit = new ChatKit(this._client);
+		this.assistants = new Assistants(this._client);
+		this.threads = new Threads(this._client);
 	}
 };
-Si.Realtime = Kr, Si.ChatKit = Yr, Si.Assistants = Ur, Si.Threads = xi;
+Beta.Realtime = Realtime$1;
+Beta.ChatKit = ChatKit;
+Beta.Assistants = Assistants;
+Beta.Threads = Threads;
 //#endregion
 //#region node_modules/openai/resources/completions.mjs
-var Ci = class extends P {
-	create(e, t) {
+/**
+* Given a prompt, the model will return one or more predicted completions, and can also return the probabilities of alternative tokens at each position.
+*/
+var Completions = class extends APIResource {
+	create(body, options) {
 		return this._client.post("/completions", {
-			body: e,
-			...t,
-			stream: e.stream ?? !1,
-			__security: { bearerAuth: !0 }
-		});
-	}
-}, wi = class extends P {
-	retrieve(e, t, n) {
-		let { container_id: r } = t;
-		return this._client.get(F`/containers/${r}/files/${e}/content`, {
-			...n,
-			headers: V([{ Accept: "application/binary" }, n?.headers]),
-			__security: { bearerAuth: !0 },
-			__binaryResponse: !0
-		});
-	}
-}, Ti = class extends P {
-	constructor() {
-		super(...arguments), this.content = new wi(this._client);
-	}
-	create(e, t, n) {
-		return this._client.post(F`/containers/${e}/files`, zt({
-			body: t,
-			...n,
-			__security: { bearerAuth: !0 }
-		}, this._client));
-	}
-	retrieve(e, t, n) {
-		let { container_id: r } = t;
-		return this._client.get(F`/containers/${r}/files/${e}`, {
-			...n,
-			__security: { bearerAuth: !0 }
-		});
-	}
-	list(e, t = {}, n) {
-		return this._client.getAPIList(F`/containers/${e}/files`, A, {
-			query: t,
-			...n,
-			__security: { bearerAuth: !0 }
-		});
-	}
-	delete(e, t, n) {
-		let { container_id: r } = t;
-		return this._client.delete(F`/containers/${r}/files/${e}`, {
-			...n,
-			headers: V([{ Accept: "*/*" }, n?.headers]),
-			__security: { bearerAuth: !0 }
+			body,
+			...options,
+			stream: body.stream ?? false,
+			__security: { bearerAuth: true }
 		});
 	}
 };
-Ti.Content = wi;
+//#endregion
+//#region node_modules/openai/resources/containers/files/content.mjs
+var Content$2 = class extends APIResource {
+	/**
+	* Retrieve Container File Content
+	*/
+	retrieve(fileID, params, options) {
+		const { container_id } = params;
+		return this._client.get(path$2`/containers/${container_id}/files/${fileID}/content`, {
+			...options,
+			headers: buildHeaders([{ Accept: "application/binary" }, options?.headers]),
+			__security: { bearerAuth: true },
+			__binaryResponse: true
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/containers/files/files.mjs
+var Files$2 = class extends APIResource {
+	constructor() {
+		super(...arguments);
+		this.content = new Content$2(this._client);
+	}
+	/**
+	* Create a Container File
+	*
+	* You can send either a multipart/form-data request with the raw file content, or
+	* a JSON request with a file ID.
+	*/
+	create(containerID, body, options) {
+		return this._client.post(path$2`/containers/${containerID}/files`, maybeMultipartFormRequestOptions({
+			body,
+			...options,
+			__security: { bearerAuth: true }
+		}, this._client));
+	}
+	/**
+	* Retrieve Container File
+	*/
+	retrieve(fileID, params, options) {
+		const { container_id } = params;
+		return this._client.get(path$2`/containers/${container_id}/files/${fileID}`, {
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* List Container files
+	*/
+	list(containerID, query = {}, options) {
+		return this._client.getAPIList(path$2`/containers/${containerID}/files`, CursorPage, {
+			query,
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Delete Container File
+	*/
+	delete(fileID, params, options) {
+		const { container_id } = params;
+		return this._client.delete(path$2`/containers/${container_id}/files/${fileID}`, {
+			...options,
+			headers: buildHeaders([{ Accept: "*/*" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+};
+Files$2.Content = Content$2;
 //#endregion
 //#region node_modules/openai/resources/containers/containers.mjs
-var Ei = class extends P {
+var Containers = class extends APIResource {
 	constructor() {
-		super(...arguments), this.files = new Ti(this._client);
+		super(...arguments);
+		this.files = new Files$2(this._client);
 	}
-	create(e, t) {
+	/**
+	* Create Container
+	*/
+	create(body, options) {
 		return this._client.post("/containers", {
-			body: e,
-			...t,
-			__security: { bearerAuth: !0 }
+			body,
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	retrieve(e, t) {
-		return this._client.get(F`/containers/${e}`, {
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* Retrieve Container
+	*/
+	retrieve(containerID, options) {
+		return this._client.get(path$2`/containers/${containerID}`, {
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	list(e = {}, t) {
-		return this._client.getAPIList("/containers", A, {
-			query: e,
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* List Containers
+	*/
+	list(query = {}, options) {
+		return this._client.getAPIList("/containers", CursorPage, {
+			query,
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	delete(e, t) {
-		return this._client.delete(F`/containers/${e}`, {
-			...t,
-			headers: V([{ Accept: "*/*" }, t?.headers]),
-			__security: { bearerAuth: !0 }
+	/**
+	* Delete Container
+	*/
+	delete(containerID, options) {
+		return this._client.delete(path$2`/containers/${containerID}`, {
+			...options,
+			headers: buildHeaders([{ Accept: "*/*" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
 };
-Ei.Files = Ti;
+Containers.Files = Files$2;
 //#endregion
 //#region node_modules/openai/resources/conversations/items.mjs
-var Di = class extends P {
-	create(e, t, n) {
-		let { include: r, ...i } = t;
-		return this._client.post(F`/conversations/${e}/items`, {
-			query: { include: r },
-			body: i,
-			...n,
-			__security: { bearerAuth: !0 }
+/**
+* Manage conversations and conversation items.
+*/
+var Items = class extends APIResource {
+	/**
+	* Create items in a conversation with the given ID.
+	*/
+	create(conversationID, params, options) {
+		const { include, ...body } = params;
+		return this._client.post(path$2`/conversations/${conversationID}/items`, {
+			query: { include },
+			body,
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	retrieve(e, t, n) {
-		let { conversation_id: r, ...i } = t;
-		return this._client.get(F`/conversations/${r}/items/${e}`, {
-			query: i,
-			...n,
-			__security: { bearerAuth: !0 }
+	/**
+	* Get a single item from a conversation with the given IDs.
+	*/
+	retrieve(itemID, params, options) {
+		const { conversation_id, ...query } = params;
+		return this._client.get(path$2`/conversations/${conversation_id}/items/${itemID}`, {
+			query,
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	list(e, t = {}, n) {
-		return this._client.getAPIList(F`/conversations/${e}/items`, j, {
-			query: t,
-			...n,
-			__security: { bearerAuth: !0 }
+	/**
+	* List all items for a conversation with the given ID.
+	*/
+	list(conversationID, query = {}, options) {
+		return this._client.getAPIList(path$2`/conversations/${conversationID}/items`, ConversationCursorPage, {
+			query,
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	delete(e, t, n) {
-		let { conversation_id: r } = t;
-		return this._client.delete(F`/conversations/${r}/items/${e}`, {
-			...n,
-			__security: { bearerAuth: !0 }
-		});
-	}
-}, Oi = class extends P {
-	constructor() {
-		super(...arguments), this.items = new Di(this._client);
-	}
-	create(e = {}, t) {
-		return this._client.post("/conversations", {
-			body: e,
-			...t,
-			__security: { bearerAuth: !0 }
-		});
-	}
-	retrieve(e, t) {
-		return this._client.get(F`/conversations/${e}`, {
-			...t,
-			__security: { bearerAuth: !0 }
-		});
-	}
-	update(e, t, n) {
-		return this._client.post(F`/conversations/${e}`, {
-			body: t,
-			...n,
-			__security: { bearerAuth: !0 }
-		});
-	}
-	delete(e, t) {
-		return this._client.delete(F`/conversations/${e}`, {
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* Delete an item from a conversation with the given IDs.
+	*/
+	delete(itemID, params, options) {
+		const { conversation_id } = params;
+		return this._client.delete(path$2`/conversations/${conversation_id}/items/${itemID}`, {
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
 };
-Oi.Items = Di;
+//#endregion
+//#region node_modules/openai/resources/conversations/conversations.mjs
+/**
+* Manage conversations and conversation items.
+*/
+var Conversations = class extends APIResource {
+	constructor() {
+		super(...arguments);
+		this.items = new Items(this._client);
+	}
+	/**
+	* Create a conversation.
+	*/
+	create(body = {}, options) {
+		return this._client.post("/conversations", {
+			body,
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Get a conversation
+	*/
+	retrieve(conversationID, options) {
+		return this._client.get(path$2`/conversations/${conversationID}`, {
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Update a conversation
+	*/
+	update(conversationID, body, options) {
+		return this._client.post(path$2`/conversations/${conversationID}`, {
+			body,
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Delete a conversation. Items in the conversation will not be deleted.
+	*/
+	delete(conversationID, options) {
+		return this._client.delete(path$2`/conversations/${conversationID}`, {
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+};
+Conversations.Items = Items;
 //#endregion
 //#region node_modules/openai/resources/embeddings.mjs
-var ki = class extends P {
-	create(e, t) {
-		let n = !!e.encoding_format, r = n ? e.encoding_format : "base64";
-		n && k(this._client).debug("embeddings/user defined encoding_format:", e.encoding_format);
-		let i = this._client.post("/embeddings", {
+/**
+* Get a vector representation of a given input that can be easily consumed by machine learning models and algorithms.
+*/
+var Embeddings = class extends APIResource {
+	/**
+	* Creates an embedding vector representing the input text.
+	*
+	* @example
+	* ```ts
+	* const createEmbeddingResponse =
+	*   await client.embeddings.create({
+	*     input: 'The quick brown fox jumped over the lazy dog',
+	*     model: 'text-embedding-3-small',
+	*   });
+	* ```
+	*/
+	create(body, options) {
+		const hasUserProvidedEncodingFormat = !!body.encoding_format;
+		let encoding_format = hasUserProvidedEncodingFormat ? body.encoding_format : "base64";
+		if (hasUserProvidedEncodingFormat) loggerFor(this._client).debug("embeddings/user defined encoding_format:", body.encoding_format);
+		const response = this._client.post("/embeddings", {
 			body: {
-				...e,
-				encoding_format: r
+				...body,
+				encoding_format
 			},
-			...t,
-			__security: { bearerAuth: !0 }
+			...options,
+			__security: { bearerAuth: true }
 		});
-		return n ? i : (k(this._client).debug("embeddings/decoding base64 embeddings from base64"), i._thenUnwrap((e) => (e && e.data && e.data.forEach((e) => {
-			let t = e.embedding;
-			e.embedding = Qr(t);
-		}), e)));
-	}
-}, Ai = class extends P {
-	retrieve(e, t, n) {
-		let { eval_id: r, run_id: i } = t;
-		return this._client.get(F`/evals/${r}/runs/${i}/output_items/${e}`, {
-			...n,
-			__security: { bearerAuth: !0 }
-		});
-	}
-	list(e, t, n) {
-		let { eval_id: r, ...i } = t;
-		return this._client.getAPIList(F`/evals/${r}/runs/${e}/output_items`, A, {
-			query: i,
-			...n,
-			__security: { bearerAuth: !0 }
-		});
-	}
-}, ji = class extends P {
-	constructor() {
-		super(...arguments), this.outputItems = new Ai(this._client);
-	}
-	create(e, t, n) {
-		return this._client.post(F`/evals/${e}/runs`, {
-			body: t,
-			...n,
-			__security: { bearerAuth: !0 }
-		});
-	}
-	retrieve(e, t, n) {
-		let { eval_id: r } = t;
-		return this._client.get(F`/evals/${r}/runs/${e}`, {
-			...n,
-			__security: { bearerAuth: !0 }
-		});
-	}
-	list(e, t = {}, n) {
-		return this._client.getAPIList(F`/evals/${e}/runs`, A, {
-			query: t,
-			...n,
-			__security: { bearerAuth: !0 }
-		});
-	}
-	delete(e, t, n) {
-		let { eval_id: r } = t;
-		return this._client.delete(F`/evals/${r}/runs/${e}`, {
-			...n,
-			__security: { bearerAuth: !0 }
-		});
-	}
-	cancel(e, t, n) {
-		let { eval_id: r } = t;
-		return this._client.post(F`/evals/${r}/runs/${e}`, {
-			...n,
-			__security: { bearerAuth: !0 }
+		if (hasUserProvidedEncodingFormat) return response;
+		loggerFor(this._client).debug("embeddings/decoding base64 embeddings from base64");
+		return response._thenUnwrap((response) => {
+			if (response && response.data) response.data.forEach((embeddingBase64Obj) => {
+				const embeddingBase64Str = embeddingBase64Obj.embedding;
+				embeddingBase64Obj.embedding = toFloat32Array(embeddingBase64Str);
+			});
+			return response;
 		});
 	}
 };
-ji.OutputItems = Ai;
+//#endregion
+//#region node_modules/openai/resources/evals/runs/output-items.mjs
+/**
+* Manage and run evals in the OpenAI platform.
+*/
+var OutputItems = class extends APIResource {
+	/**
+	* Get an evaluation run output item by ID.
+	*/
+	retrieve(outputItemID, params, options) {
+		const { eval_id, run_id } = params;
+		return this._client.get(path$2`/evals/${eval_id}/runs/${run_id}/output_items/${outputItemID}`, {
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Get a list of output items for an evaluation run.
+	*/
+	list(runID, params, options) {
+		const { eval_id, ...query } = params;
+		return this._client.getAPIList(path$2`/evals/${eval_id}/runs/${runID}/output_items`, CursorPage, {
+			query,
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/evals/runs/runs.mjs
+/**
+* Manage and run evals in the OpenAI platform.
+*/
+var Runs = class extends APIResource {
+	constructor() {
+		super(...arguments);
+		this.outputItems = new OutputItems(this._client);
+	}
+	/**
+	* Kicks off a new run for a given evaluation, specifying the data source, and what
+	* model configuration to use to test. The datasource will be validated against the
+	* schema specified in the config of the evaluation.
+	*/
+	create(evalID, body, options) {
+		return this._client.post(path$2`/evals/${evalID}/runs`, {
+			body,
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Get an evaluation run by ID.
+	*/
+	retrieve(runID, params, options) {
+		const { eval_id } = params;
+		return this._client.get(path$2`/evals/${eval_id}/runs/${runID}`, {
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Get a list of runs for an evaluation.
+	*/
+	list(evalID, query = {}, options) {
+		return this._client.getAPIList(path$2`/evals/${evalID}/runs`, CursorPage, {
+			query,
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Delete an eval run.
+	*/
+	delete(runID, params, options) {
+		const { eval_id } = params;
+		return this._client.delete(path$2`/evals/${eval_id}/runs/${runID}`, {
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Cancel an ongoing evaluation run.
+	*/
+	cancel(runID, params, options) {
+		const { eval_id } = params;
+		return this._client.post(path$2`/evals/${eval_id}/runs/${runID}`, {
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+};
+Runs.OutputItems = OutputItems;
 //#endregion
 //#region node_modules/openai/resources/evals/evals.mjs
-var Mi = class extends P {
+/**
+* Manage and run evals in the OpenAI platform.
+*/
+var Evals = class extends APIResource {
 	constructor() {
-		super(...arguments), this.runs = new ji(this._client);
+		super(...arguments);
+		this.runs = new Runs(this._client);
 	}
-	create(e, t) {
+	/**
+	* Create the structure of an evaluation that can be used to test a model's
+	* performance. An evaluation is a set of testing criteria and the config for a
+	* data source, which dictates the schema of the data used in the evaluation. After
+	* creating an evaluation, you can run it on different models and model parameters.
+	* We support several types of graders and datasources. For more information, see
+	* the [Evals guide](https://platform.openai.com/docs/guides/evals).
+	*/
+	create(body, options) {
 		return this._client.post("/evals", {
-			body: e,
-			...t,
-			__security: { bearerAuth: !0 }
+			body,
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	retrieve(e, t) {
-		return this._client.get(F`/evals/${e}`, {
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* Get an evaluation by ID.
+	*/
+	retrieve(evalID, options) {
+		return this._client.get(path$2`/evals/${evalID}`, {
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	update(e, t, n) {
-		return this._client.post(F`/evals/${e}`, {
-			body: t,
-			...n,
-			__security: { bearerAuth: !0 }
+	/**
+	* Update certain properties of an evaluation.
+	*/
+	update(evalID, body, options) {
+		return this._client.post(path$2`/evals/${evalID}`, {
+			body,
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	list(e = {}, t) {
-		return this._client.getAPIList("/evals", A, {
-			query: e,
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* List evaluations for a project.
+	*/
+	list(query = {}, options) {
+		return this._client.getAPIList("/evals", CursorPage, {
+			query,
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	delete(e, t) {
-		return this._client.delete(F`/evals/${e}`, {
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* Delete an evaluation.
+	*/
+	delete(evalID, options) {
+		return this._client.delete(path$2`/evals/${evalID}`, {
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
 };
-Mi.Runs = ji;
+Evals.Runs = Runs;
 //#endregion
 //#region node_modules/openai/resources/files.mjs
-var Ni = class extends P {
-	create(e, t) {
-		return this._client.post("/files", N({
-			body: e,
-			...t,
-			__security: { bearerAuth: !0 }
+/**
+* Files are used to upload documents that can be used with features like Assistants and Fine-tuning.
+*/
+var Files$1 = class extends APIResource {
+	/**
+	* Upload a file that can be used across various endpoints. Individual files can be
+	* up to 512 MB, and each project can store up to 2.5 TB of files in total. There
+	* is no organization-wide storage limit. Uploads to this endpoint are rate-limited
+	* to 1,000 requests per minute per authenticated user.
+	*
+	* - The Assistants API supports files up to 2 million tokens and of specific file
+	*   types. See the
+	*   [Assistants Tools guide](https://platform.openai.com/docs/assistants/tools)
+	*   for details.
+	* - The Fine-tuning API only supports `.jsonl` files. The input also has certain
+	*   required formats for fine-tuning
+	*   [chat](https://platform.openai.com/docs/api-reference/fine-tuning/chat-input)
+	*   or
+	*   [completions](https://platform.openai.com/docs/api-reference/fine-tuning/completions-input)
+	*   models.
+	* - The Batch API only supports `.jsonl` files up to 200 MB in size. The input
+	*   also has a specific required
+	*   [format](https://platform.openai.com/docs/api-reference/batch/request-input).
+	* - For Retrieval or `file_search` ingestion, upload files here first. If you need
+	*   to attach multiple uploaded files to the same vector store, use
+	*   [`/vector_stores/{vector_store_id}/file_batches`](https://platform.openai.com/docs/api-reference/vector-stores-file-batches/createBatch)
+	*   instead of attaching them one by one. Vector store attachment has separate
+	*   limits from file upload, including 2,000 attached files per minute per
+	*   organization.
+	*
+	* Please [contact us](https://help.openai.com/) if you need to increase these
+	* storage limits.
+	*/
+	create(body, options) {
+		return this._client.post("/files", multipartFormRequestOptions({
+			body,
+			...options,
+			__security: { bearerAuth: true }
 		}, this._client));
 	}
-	retrieve(e, t) {
-		return this._client.get(F`/files/${e}`, {
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* Returns information about a specific file.
+	*/
+	retrieve(fileID, options) {
+		return this._client.get(path$2`/files/${fileID}`, {
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	list(e = {}, t) {
-		return this._client.getAPIList("/files", A, {
-			query: e,
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* Returns a list of files.
+	*/
+	list(query = {}, options) {
+		return this._client.getAPIList("/files", CursorPage, {
+			query,
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	delete(e, t) {
-		return this._client.delete(F`/files/${e}`, {
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* Delete a file and remove it from all vector stores.
+	*/
+	delete(fileID, options) {
+		return this._client.delete(path$2`/files/${fileID}`, {
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	content(e, t) {
-		return this._client.get(F`/files/${e}/content`, {
-			...t,
-			headers: V([{ Accept: "application/binary" }, t?.headers]),
-			__security: { bearerAuth: !0 },
-			__binaryResponse: !0
+	/**
+	* Returns the contents of the specified file.
+	*/
+	content(fileID, options) {
+		return this._client.get(path$2`/files/${fileID}/content`, {
+			...options,
+			headers: buildHeaders([{ Accept: "application/binary" }, options?.headers]),
+			__security: { bearerAuth: true },
+			__binaryResponse: true
 		});
 	}
-	async waitForProcessing(e, { pollInterval: t = 5e3, maxWait: n = 1800 * 1e3 } = {}) {
-		let r = new Set([
+	/**
+	* Waits for the given file to be processed, default timeout is 30 mins.
+	*/
+	async waitForProcessing(id, { pollInterval = 5e3, maxWait = 1800 * 1e3 } = {}) {
+		const TERMINAL_STATES = new Set([
 			"processed",
 			"error",
 			"deleted"
-		]), i = Date.now(), a = await this.retrieve(e);
-		for (; !a.status || !r.has(a.status);) if (await we(t), a = await this.retrieve(e), Date.now() - i > n) throw new te({ message: `Giving up on waiting for file ${e} to finish processing after ${n} milliseconds.` });
-		return a;
-	}
-}, Pi = class extends P {}, Fi = class extends P {
-	run(e, t) {
-		return this._client.post("/fine_tuning/alpha/graders/run", {
-			body: e,
-			...t,
-			__security: { bearerAuth: !0 }
-		});
-	}
-	validate(e, t) {
-		return this._client.post("/fine_tuning/alpha/graders/validate", {
-			body: e,
-			...t,
-			__security: { bearerAuth: !0 }
-		});
-	}
-}, Ii = class extends P {
-	constructor() {
-		super(...arguments), this.graders = new Fi(this._client);
+		]);
+		const start = Date.now();
+		let file = await this.retrieve(id);
+		while (!file.status || !TERMINAL_STATES.has(file.status)) {
+			await sleep(pollInterval);
+			file = await this.retrieve(id);
+			if (Date.now() - start > maxWait) throw new APIConnectionTimeoutError({ message: `Giving up on waiting for file ${id} to finish processing after ${maxWait} milliseconds.` });
+		}
+		return file;
 	}
 };
-Ii.Graders = Fi;
+//#endregion
+//#region node_modules/openai/resources/fine-tuning/methods.mjs
+var Methods = class extends APIResource {};
+//#endregion
+//#region node_modules/openai/resources/fine-tuning/alpha/graders.mjs
+/**
+* Manage fine-tuning jobs to tailor a model to your specific training data.
+*/
+var Graders$1 = class extends APIResource {
+	/**
+	* Run a grader.
+	*
+	* @example
+	* ```ts
+	* const response = await client.fineTuning.alpha.graders.run({
+	*   grader: {
+	*     input: 'input',
+	*     name: 'name',
+	*     operation: 'eq',
+	*     reference: 'reference',
+	*     type: 'string_check',
+	*   },
+	*   model_sample: 'model_sample',
+	* });
+	* ```
+	*/
+	run(body, options) {
+		return this._client.post("/fine_tuning/alpha/graders/run", {
+			body,
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Validate a grader.
+	*
+	* @example
+	* ```ts
+	* const response =
+	*   await client.fineTuning.alpha.graders.validate({
+	*     grader: {
+	*       input: 'input',
+	*       name: 'name',
+	*       operation: 'eq',
+	*       reference: 'reference',
+	*       type: 'string_check',
+	*     },
+	*   });
+	* ```
+	*/
+	validate(body, options) {
+		return this._client.post("/fine_tuning/alpha/graders/validate", {
+			body,
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/fine-tuning/alpha/alpha.mjs
+var Alpha = class extends APIResource {
+	constructor() {
+		super(...arguments);
+		this.graders = new Graders$1(this._client);
+	}
+};
+Alpha.Graders = Graders$1;
 //#endregion
 //#region node_modules/openai/resources/fine-tuning/checkpoints/permissions.mjs
-var Li = class extends P {
-	create(e, t, n) {
-		return this._client.getAPIList(F`/fine_tuning/checkpoints/${e}/permissions`, jt, {
-			body: t,
+/**
+* Manage fine-tuning jobs to tailor a model to your specific training data.
+*/
+var Permissions = class extends APIResource {
+	/**
+	* **NOTE:** Calling this endpoint requires an [admin API key](../admin-api-keys).
+	*
+	* This enables organization owners to share fine-tuned models with other projects
+	* in their organization.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const permissionCreateResponse of client.fineTuning.checkpoints.permissions.create(
+	*   'ft:gpt-4o-mini-2024-07-18:org:weather:B7R9VjQd',
+	*   { project_ids: ['string'] },
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	create(fineTunedModelCheckpoint, body, options) {
+		return this._client.getAPIList(path$2`/fine_tuning/checkpoints/${fineTunedModelCheckpoint}/permissions`, Page, {
+			body,
 			method: "post",
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
 	}
-	retrieve(e, t = {}, n) {
-		return this._client.get(F`/fine_tuning/checkpoints/${e}/permissions`, {
-			query: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
+	/**
+	* **NOTE:** This endpoint requires an [admin API key](../admin-api-keys).
+	*
+	* Organization owners can use this endpoint to view all permissions for a
+	* fine-tuned model checkpoint.
+	*
+	* @deprecated Retrieve is deprecated. Please swap to the paginated list method instead.
+	*/
+	retrieve(fineTunedModelCheckpoint, query = {}, options) {
+		return this._client.get(path$2`/fine_tuning/checkpoints/${fineTunedModelCheckpoint}/permissions`, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
 	}
-	list(e, t = {}, n) {
-		return this._client.getAPIList(F`/fine_tuning/checkpoints/${e}/permissions`, j, {
-			query: t,
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
+	/**
+	* **NOTE:** This endpoint requires an [admin API key](../admin-api-keys).
+	*
+	* Organization owners can use this endpoint to view all permissions for a
+	* fine-tuned model checkpoint.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const permissionListResponse of client.fineTuning.checkpoints.permissions.list(
+	*   'ft-AF1WoRqd3aJAHsqc9NY7iL8F',
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(fineTunedModelCheckpoint, query = {}, options) {
+		return this._client.getAPIList(path$2`/fine_tuning/checkpoints/${fineTunedModelCheckpoint}/permissions`, ConversationCursorPage, {
+			query,
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
 	}
-	delete(e, t, n) {
-		let { fine_tuned_model_checkpoint: r } = t;
-		return this._client.delete(F`/fine_tuning/checkpoints/${r}/permissions/${e}`, {
-			...n,
-			__security: { adminAPIKeyAuth: !0 }
+	/**
+	* **NOTE:** This endpoint requires an [admin API key](../admin-api-keys).
+	*
+	* Organization owners can use this endpoint to delete a permission for a
+	* fine-tuned model checkpoint.
+	*
+	* @example
+	* ```ts
+	* const permission =
+	*   await client.fineTuning.checkpoints.permissions.delete(
+	*     'cp_zc4Q7MP6XxulcVzj4MZdwsAB',
+	*     {
+	*       fine_tuned_model_checkpoint:
+	*         'ft:gpt-4o-mini-2024-07-18:org:weather:B7R9VjQd',
+	*     },
+	*   );
+	* ```
+	*/
+	delete(permissionID, params, options) {
+		const { fine_tuned_model_checkpoint } = params;
+		return this._client.delete(path$2`/fine_tuning/checkpoints/${fine_tuned_model_checkpoint}/permissions/${permissionID}`, {
+			...options,
+			__security: { adminAPIKeyAuth: true }
 		});
-	}
-}, Ri = class extends P {
-	constructor() {
-		super(...arguments), this.permissions = new Li(this._client);
 	}
 };
-Ri.Permissions = Li;
+//#endregion
+//#region node_modules/openai/resources/fine-tuning/checkpoints/checkpoints.mjs
+var Checkpoints$1 = class extends APIResource {
+	constructor() {
+		super(...arguments);
+		this.permissions = new Permissions(this._client);
+	}
+};
+Checkpoints$1.Permissions = Permissions;
 //#endregion
 //#region node_modules/openai/resources/fine-tuning/jobs/checkpoints.mjs
-var zi = class extends P {
-	list(e, t = {}, n) {
-		return this._client.getAPIList(F`/fine_tuning/jobs/${e}/checkpoints`, A, {
-			query: t,
-			...n,
-			__security: { bearerAuth: !0 }
-		});
-	}
-}, Bi = class extends P {
-	constructor() {
-		super(...arguments), this.checkpoints = new zi(this._client);
-	}
-	create(e, t) {
-		return this._client.post("/fine_tuning/jobs", {
-			body: e,
-			...t,
-			__security: { bearerAuth: !0 }
-		});
-	}
-	retrieve(e, t) {
-		return this._client.get(F`/fine_tuning/jobs/${e}`, {
-			...t,
-			__security: { bearerAuth: !0 }
-		});
-	}
-	list(e = {}, t) {
-		return this._client.getAPIList("/fine_tuning/jobs", A, {
-			query: e,
-			...t,
-			__security: { bearerAuth: !0 }
-		});
-	}
-	cancel(e, t) {
-		return this._client.post(F`/fine_tuning/jobs/${e}/cancel`, {
-			...t,
-			__security: { bearerAuth: !0 }
-		});
-	}
-	listEvents(e, t = {}, n) {
-		return this._client.getAPIList(F`/fine_tuning/jobs/${e}/events`, A, {
-			query: t,
-			...n,
-			__security: { bearerAuth: !0 }
-		});
-	}
-	pause(e, t) {
-		return this._client.post(F`/fine_tuning/jobs/${e}/pause`, {
-			...t,
-			__security: { bearerAuth: !0 }
-		});
-	}
-	resume(e, t) {
-		return this._client.post(F`/fine_tuning/jobs/${e}/resume`, {
-			...t,
-			__security: { bearerAuth: !0 }
+/**
+* Manage fine-tuning jobs to tailor a model to your specific training data.
+*/
+var Checkpoints = class extends APIResource {
+	/**
+	* List checkpoints for a fine-tuning job.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const fineTuningJobCheckpoint of client.fineTuning.jobs.checkpoints.list(
+	*   'ft-AF1WoRqd3aJAHsqc9NY7iL8F',
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(fineTuningJobID, query = {}, options) {
+		return this._client.getAPIList(path$2`/fine_tuning/jobs/${fineTuningJobID}/checkpoints`, CursorPage, {
+			query,
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
 };
-Bi.Checkpoints = zi;
+//#endregion
+//#region node_modules/openai/resources/fine-tuning/jobs/jobs.mjs
+/**
+* Manage fine-tuning jobs to tailor a model to your specific training data.
+*/
+var Jobs = class extends APIResource {
+	constructor() {
+		super(...arguments);
+		this.checkpoints = new Checkpoints(this._client);
+	}
+	/**
+	* Creates a fine-tuning job which begins the process of creating a new model from
+	* a given dataset.
+	*
+	* Response includes details of the enqueued job including job status and the name
+	* of the fine-tuned models once complete.
+	*
+	* [Learn more about fine-tuning](https://platform.openai.com/docs/guides/model-optimization)
+	*
+	* @example
+	* ```ts
+	* const fineTuningJob = await client.fineTuning.jobs.create({
+	*   model: 'gpt-4o-mini',
+	*   training_file: 'file-abc123',
+	* });
+	* ```
+	*/
+	create(body, options) {
+		return this._client.post("/fine_tuning/jobs", {
+			body,
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Get info about a fine-tuning job.
+	*
+	* [Learn more about fine-tuning](https://platform.openai.com/docs/guides/model-optimization)
+	*
+	* @example
+	* ```ts
+	* const fineTuningJob = await client.fineTuning.jobs.retrieve(
+	*   'ft-AF1WoRqd3aJAHsqc9NY7iL8F',
+	* );
+	* ```
+	*/
+	retrieve(fineTuningJobID, options) {
+		return this._client.get(path$2`/fine_tuning/jobs/${fineTuningJobID}`, {
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* List your organization's fine-tuning jobs
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const fineTuningJob of client.fineTuning.jobs.list()) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(query = {}, options) {
+		return this._client.getAPIList("/fine_tuning/jobs", CursorPage, {
+			query,
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Immediately cancel a fine-tune job.
+	*
+	* @example
+	* ```ts
+	* const fineTuningJob = await client.fineTuning.jobs.cancel(
+	*   'ft-AF1WoRqd3aJAHsqc9NY7iL8F',
+	* );
+	* ```
+	*/
+	cancel(fineTuningJobID, options) {
+		return this._client.post(path$2`/fine_tuning/jobs/${fineTuningJobID}/cancel`, {
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Get status updates for a fine-tuning job.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const fineTuningJobEvent of client.fineTuning.jobs.listEvents(
+	*   'ft-AF1WoRqd3aJAHsqc9NY7iL8F',
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	listEvents(fineTuningJobID, query = {}, options) {
+		return this._client.getAPIList(path$2`/fine_tuning/jobs/${fineTuningJobID}/events`, CursorPage, {
+			query,
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Pause a fine-tune job.
+	*
+	* @example
+	* ```ts
+	* const fineTuningJob = await client.fineTuning.jobs.pause(
+	*   'ft-AF1WoRqd3aJAHsqc9NY7iL8F',
+	* );
+	* ```
+	*/
+	pause(fineTuningJobID, options) {
+		return this._client.post(path$2`/fine_tuning/jobs/${fineTuningJobID}/pause`, {
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Resume a fine-tune job.
+	*
+	* @example
+	* ```ts
+	* const fineTuningJob = await client.fineTuning.jobs.resume(
+	*   'ft-AF1WoRqd3aJAHsqc9NY7iL8F',
+	* );
+	* ```
+	*/
+	resume(fineTuningJobID, options) {
+		return this._client.post(path$2`/fine_tuning/jobs/${fineTuningJobID}/resume`, {
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+};
+Jobs.Checkpoints = Checkpoints;
 //#endregion
 //#region node_modules/openai/resources/fine-tuning/fine-tuning.mjs
-var Vi = class extends P {
+var FineTuning = class extends APIResource {
 	constructor() {
-		super(...arguments), this.methods = new Pi(this._client), this.jobs = new Bi(this._client), this.checkpoints = new Ri(this._client), this.alpha = new Ii(this._client);
+		super(...arguments);
+		this.methods = new Methods(this._client);
+		this.jobs = new Jobs(this._client);
+		this.checkpoints = new Checkpoints$1(this._client);
+		this.alpha = new Alpha(this._client);
 	}
 };
-Vi.Methods = Pi, Vi.Jobs = Bi, Vi.Checkpoints = Ri, Vi.Alpha = Ii;
+FineTuning.Methods = Methods;
+FineTuning.Jobs = Jobs;
+FineTuning.Checkpoints = Checkpoints$1;
+FineTuning.Alpha = Alpha;
 //#endregion
 //#region node_modules/openai/resources/graders/grader-models.mjs
-var Hi = class extends P {}, Ui = class extends P {
+var GraderModels = class extends APIResource {};
+//#endregion
+//#region node_modules/openai/resources/graders/graders.mjs
+var Graders = class extends APIResource {
 	constructor() {
-		super(...arguments), this.graderModels = new Hi(this._client);
+		super(...arguments);
+		this.graderModels = new GraderModels(this._client);
 	}
 };
-Ui.GraderModels = Hi;
+Graders.GraderModels = GraderModels;
 //#endregion
 //#region node_modules/openai/resources/images.mjs
-var Wi = class extends P {
-	createVariation(e, t) {
-		return this._client.post("/images/variations", N({
-			body: e,
-			...t,
-			__security: { bearerAuth: !0 }
+/**
+* Given a prompt and/or an input image, the model will generate a new image.
+*/
+var Images = class extends APIResource {
+	/**
+	* Creates a variation of a given image. This endpoint only supports `dall-e-2`.
+	*
+	* @example
+	* ```ts
+	* const imagesResponse = await client.images.createVariation({
+	*   image: fs.createReadStream('otter.png'),
+	* });
+	* ```
+	*/
+	createVariation(body, options) {
+		return this._client.post("/images/variations", multipartFormRequestOptions({
+			body,
+			...options,
+			__security: { bearerAuth: true }
 		}, this._client));
 	}
-	edit(e, t) {
-		return this._client.post("/images/edits", N({
-			body: e,
-			...t,
-			stream: e.stream ?? !1,
-			__security: { bearerAuth: !0 }
+	edit(body, options) {
+		return this._client.post("/images/edits", multipartFormRequestOptions({
+			body,
+			...options,
+			stream: body.stream ?? false,
+			__security: { bearerAuth: true }
 		}, this._client));
 	}
-	generate(e, t) {
+	generate(body, options) {
 		return this._client.post("/images/generations", {
-			body: e,
-			...t,
-			stream: e.stream ?? !1,
-			__security: { bearerAuth: !0 }
+			body,
+			...options,
+			stream: body.stream ?? false,
+			__security: { bearerAuth: true }
 		});
-	}
-}, Gi = class extends P {
-	retrieve(e, t) {
-		return this._client.get(F`/models/${e}`, {
-			...t,
-			__security: { bearerAuth: !0 }
-		});
-	}
-	list(e) {
-		return this._client.getAPIList("/models", jt, {
-			...e,
-			__security: { bearerAuth: !0 }
-		});
-	}
-	delete(e, t) {
-		return this._client.delete(F`/models/${e}`, {
-			...t,
-			__security: { bearerAuth: !0 }
-		});
-	}
-}, Ki = class extends P {
-	create(e, t) {
-		return this._client.post("/moderations", {
-			body: e,
-			...t,
-			__security: { bearerAuth: !0 }
-		});
-	}
-}, qi = class extends P {
-	accept(e, t, n) {
-		return this._client.post(F`/realtime/calls/${e}/accept`, {
-			body: t,
-			...n,
-			headers: V([{ Accept: "*/*" }, n?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-	hangup(e, t) {
-		return this._client.post(F`/realtime/calls/${e}/hangup`, {
-			...t,
-			headers: V([{ Accept: "*/*" }, t?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-	refer(e, t, n) {
-		return this._client.post(F`/realtime/calls/${e}/refer`, {
-			body: t,
-			...n,
-			headers: V([{ Accept: "*/*" }, n?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-	reject(e, t = {}, n) {
-		return this._client.post(F`/realtime/calls/${e}/reject`, {
-			body: t,
-			...n,
-			headers: V([{ Accept: "*/*" }, n?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-}, Ji = class extends P {
-	create(e, t) {
-		return this._client.post("/realtime/client_secrets", {
-			body: e,
-			...t,
-			__security: { bearerAuth: !0 }
-		});
-	}
-}, Yi = class extends P {
-	constructor() {
-		super(...arguments), this.clientSecrets = new Ji(this._client), this.calls = new qi(this._client);
 	}
 };
-Yi.ClientSecrets = Ji, Yi.Calls = qi;
+//#endregion
+//#region node_modules/openai/resources/models.mjs
+/**
+* List and describe the various models available in the API.
+*/
+var Models = class extends APIResource {
+	/**
+	* Retrieves a model instance, providing basic information about the model such as
+	* the owner and permissioning.
+	*/
+	retrieve(model, options) {
+		return this._client.get(path$2`/models/${model}`, {
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Lists the currently available models, and provides basic information about each
+	* one such as the owner and availability.
+	*/
+	list(options) {
+		return this._client.getAPIList("/models", Page, {
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Delete a fine-tuned model. You must have the Owner role in your organization to
+	* delete a model.
+	*/
+	delete(model, options) {
+		return this._client.delete(path$2`/models/${model}`, {
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/moderations.mjs
+/**
+* Given text and/or image inputs, classifies if those inputs are potentially harmful.
+*/
+var Moderations = class extends APIResource {
+	/**
+	* Classifies if text and/or image inputs are potentially harmful. Learn more in
+	* the [moderation guide](https://platform.openai.com/docs/guides/moderation).
+	*/
+	create(body, options) {
+		return this._client.post("/moderations", {
+			body,
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/realtime/calls.mjs
+var Calls = class extends APIResource {
+	/**
+	* Accept an incoming SIP call and configure the realtime session that will handle
+	* it.
+	*
+	* @example
+	* ```ts
+	* await client.realtime.calls.accept('call_id', {
+	*   type: 'realtime',
+	* });
+	* ```
+	*/
+	accept(callID, body, options) {
+		return this._client.post(path$2`/realtime/calls/${callID}/accept`, {
+			body,
+			...options,
+			headers: buildHeaders([{ Accept: "*/*" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* End an active Realtime API call, whether it was initiated over SIP or WebRTC.
+	*
+	* @example
+	* ```ts
+	* await client.realtime.calls.hangup('call_id');
+	* ```
+	*/
+	hangup(callID, options) {
+		return this._client.post(path$2`/realtime/calls/${callID}/hangup`, {
+			...options,
+			headers: buildHeaders([{ Accept: "*/*" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Transfer an active SIP call to a new destination using the SIP REFER verb.
+	*
+	* @example
+	* ```ts
+	* await client.realtime.calls.refer('call_id', {
+	*   target_uri: 'tel:+14155550123',
+	* });
+	* ```
+	*/
+	refer(callID, body, options) {
+		return this._client.post(path$2`/realtime/calls/${callID}/refer`, {
+			body,
+			...options,
+			headers: buildHeaders([{ Accept: "*/*" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Decline an incoming SIP call by returning a SIP status code to the caller.
+	*
+	* @example
+	* ```ts
+	* await client.realtime.calls.reject('call_id');
+	* ```
+	*/
+	reject(callID, body = {}, options) {
+		return this._client.post(path$2`/realtime/calls/${callID}/reject`, {
+			body,
+			...options,
+			headers: buildHeaders([{ Accept: "*/*" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/realtime/client-secrets.mjs
+var ClientSecrets = class extends APIResource {
+	/**
+	* Create a Realtime client secret with an associated session configuration.
+	*
+	* Client secrets are short-lived tokens that can be passed to a client app, such
+	* as a web frontend or mobile client, which grants access to the Realtime API
+	* without leaking your main API key. You can configure a custom TTL for each
+	* client secret.
+	*
+	* You can also attach session configuration options to the client secret, which
+	* will be applied to any sessions created using that client secret, but these can
+	* also be overridden by the client connection.
+	*
+	* [Learn more about authentication with client secrets over WebRTC](https://platform.openai.com/docs/guides/realtime-webrtc).
+	*
+	* Returns the created client secret and the effective session object. The client
+	* secret is a string that looks like `ek_1234`.
+	*
+	* @example
+	* ```ts
+	* const clientSecret =
+	*   await client.realtime.clientSecrets.create();
+	* ```
+	*/
+	create(body, options) {
+		return this._client.post("/realtime/client_secrets", {
+			body,
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/realtime/realtime.mjs
+var Realtime = class extends APIResource {
+	constructor() {
+		super(...arguments);
+		this.clientSecrets = new ClientSecrets(this._client);
+		this.calls = new Calls(this._client);
+	}
+};
+Realtime.ClientSecrets = ClientSecrets;
+Realtime.Calls = Calls;
 //#endregion
 //#region node_modules/openai/lib/ResponsesParser.mjs
-function Xi(e, t) {
-	return !t || !$i(t) ? {
-		...e,
+function maybeParseResponse(response, params) {
+	if (!params || !hasAutoParseableInput(params)) return {
+		...response,
 		output_parsed: null,
-		output: e.output.map((e) => e.type === "function_call" ? {
-			...e,
-			parsed_arguments: null
-		} : e.type === "message" ? {
-			...e,
-			content: e.content.map((e) => ({
-				...e,
-				parsed: null
-			}))
-		} : e)
-	} : Zi(e, t);
+		output: response.output.map((item) => {
+			if (item.type === "function_call") return {
+				...item,
+				parsed_arguments: null
+			};
+			if (item.type === "message") return {
+				...item,
+				content: item.content.map((content) => ({
+					...content,
+					parsed: null
+				}))
+			};
+			else return item;
+		})
+	};
+	return parseResponse(response, params);
 }
-function Zi(e, t) {
-	let n = e.output.map((e) => {
-		if (e.type === "function_call") return {
-			...e,
-			parsed_arguments: na(t, e)
+function parseResponse(response, params) {
+	const output = response.output.map((item) => {
+		if (item.type === "function_call") return {
+			...item,
+			parsed_arguments: parseToolCall(params, item)
 		};
-		if (e.type === "message") {
-			let n = e.content.map((e) => e.type === "output_text" ? {
-				...e,
-				parsed: Qi(t, e.text)
-			} : e);
+		if (item.type === "message") {
+			const content = item.content.map((content) => {
+				if (content.type === "output_text") return {
+					...content,
+					parsed: parseTextFormat(params, content.text)
+				};
+				return content;
+			});
 			return {
-				...e,
-				content: n
+				...item,
+				content
 			};
 		}
-		return e;
-	}), r = Object.assign({}, e, { output: n });
-	return Object.getOwnPropertyDescriptor(e, "output_text") || ra(r), Object.defineProperty(r, "output_parsed", {
-		enumerable: !0,
+		return item;
+	});
+	const parsed = Object.assign({}, response, { output });
+	if (!Object.getOwnPropertyDescriptor(response, "output_text")) addOutputText(parsed);
+	Object.defineProperty(parsed, "output_parsed", {
+		enumerable: true,
 		get() {
-			for (let e of r.output) if (e.type === "message") {
-				for (let t of e.content) if (t.type === "output_text" && t.parsed !== null) return t.parsed;
+			for (const output of parsed.output) {
+				if (output.type !== "message") continue;
+				for (const content of output.content) if (content.type === "output_text" && content.parsed !== null) return content.parsed;
 			}
 			return null;
 		}
-	}), r;
+	});
+	return parsed;
 }
-function Qi(e, t) {
-	return e.text?.format?.type === "json_schema" ? "$parseRaw" in e.text?.format ? (e.text?.format).$parseRaw(t) : JSON.parse(t) : null;
+function parseTextFormat(params, content) {
+	if (params.text?.format?.type !== "json_schema") return null;
+	if ("$parseRaw" in params.text?.format) return (params.text?.format).$parseRaw(content);
+	return JSON.parse(content);
 }
-function $i(e) {
-	return !!rn(e.text?.format);
+function hasAutoParseableInput(params) {
+	if (isAutoParsableResponseFormat(params.text?.format)) return true;
+	return false;
 }
-function ea(e) {
-	return e?.$brand === "auto-parseable-tool";
+function isAutoParsableTool(tool) {
+	return tool?.["$brand"] === "auto-parseable-tool";
 }
-function ta(e, t) {
-	return e.find((e) => e.type === "function" && e.name === t);
+function getInputToolByName(input_tools, name) {
+	return input_tools.find((tool) => tool.type === "function" && tool.name === name);
 }
-function na(e, t) {
-	let n = ta(e.tools ?? [], t.name);
+function parseToolCall(params, toolCall) {
+	const inputTool = getInputToolByName(params.tools ?? [], toolCall.name);
 	return {
-		...t,
-		...t,
-		parsed_arguments: ea(n) ? n.$parseRaw(t.arguments) : n?.strict ? JSON.parse(t.arguments) : null
+		...toolCall,
+		...toolCall,
+		parsed_arguments: isAutoParsableTool(inputTool) ? inputTool.$parseRaw(toolCall.arguments) : inputTool?.strict ? JSON.parse(toolCall.arguments) : null
 	};
 }
-function ra(e) {
-	let t = [];
-	for (let n of e.output) if (n.type === "message") for (let e of n.content) e.type === "output_text" && t.push(e.text);
-	e.output_text = t.join("");
+function addOutputText(rsp) {
+	const texts = [];
+	for (const output of rsp.output) {
+		if (output.type !== "message") continue;
+		for (const content of output.content) if (content.type === "output_text") texts.push(content.text);
+	}
+	rsp.output_text = texts.join("");
 }
 //#endregion
 //#region node_modules/openai/lib/responses/ResponseStream.mjs
-var ia, aa, oa, sa, ca, la, ua, da, fa = class e extends kn {
-	constructor(e) {
-		super(), ia.add(this), aa.set(this, void 0), oa.set(this, void 0), sa.set(this, void 0), g(this, aa, e, "f");
+var _ResponseStream_instances, _ResponseStream_params, _ResponseStream_currentResponseSnapshot, _ResponseStream_finalResponse, _ResponseStream_beginRequest, _ResponseStream_addEvent, _ResponseStream_endRequest, _ResponseStream_accumulateResponse;
+var ResponseStream = class ResponseStream extends EventStream {
+	constructor(params) {
+		super();
+		_ResponseStream_instances.add(this);
+		_ResponseStream_params.set(this, void 0);
+		_ResponseStream_currentResponseSnapshot.set(this, void 0);
+		_ResponseStream_finalResponse.set(this, void 0);
+		__classPrivateFieldSet(this, _ResponseStream_params, params, "f");
 	}
-	static createResponse(t, n, r) {
-		let i = new e(n);
-		return i._run(() => i._createOrRetrieveResponse(t, n, {
-			...r,
+	static createResponse(client, params, options) {
+		const runner = new ResponseStream(params);
+		runner._run(() => runner._createOrRetrieveResponse(client, params, {
+			...options,
 			headers: {
-				...r?.headers,
+				...options?.headers,
 				"X-Stainless-Helper-Method": "stream"
 			}
-		})), i;
+		}));
+		return runner;
 	}
-	async _createOrRetrieveResponse(e, t, n) {
-		let r = n?.signal;
-		r && (r.aborted && this.controller.abort(), r.addEventListener("abort", () => this.controller.abort())), _(this, ia, "m", ca).call(this);
-		let i, a = null;
-		"response_id" in t ? (i = await e.responses.retrieve(t.response_id, { stream: !0 }, {
-			...n,
-			signal: this.controller.signal,
-			stream: !0
-		}), a = t.starting_after ?? null) : i = await e.responses.create({
-			...t,
-			stream: !0
+	async _createOrRetrieveResponse(client, params, options) {
+		const signal = options?.signal;
+		if (signal) {
+			if (signal.aborted) this.controller.abort();
+			signal.addEventListener("abort", () => this.controller.abort());
+		}
+		__classPrivateFieldGet(this, _ResponseStream_instances, "m", _ResponseStream_beginRequest).call(this);
+		let stream;
+		let starting_after = null;
+		if ("response_id" in params) {
+			stream = await client.responses.retrieve(params.response_id, { stream: true }, {
+				...options,
+				signal: this.controller.signal,
+				stream: true
+			});
+			starting_after = params.starting_after ?? null;
+		} else stream = await client.responses.create({
+			...params,
+			stream: true
 		}, {
-			...n,
+			...options,
 			signal: this.controller.signal
-		}), this._connected();
-		for await (let e of i) _(this, ia, "m", la).call(this, e, a);
-		if (i.controller.signal?.aborted) throw new S();
-		return _(this, ia, "m", ua).call(this);
+		});
+		this._connected();
+		for await (const event of stream) __classPrivateFieldGet(this, _ResponseStream_instances, "m", _ResponseStream_addEvent).call(this, event, starting_after);
+		if (stream.controller.signal?.aborted) throw new APIUserAbortError();
+		return __classPrivateFieldGet(this, _ResponseStream_instances, "m", _ResponseStream_endRequest).call(this);
 	}
-	[(aa = /* @__PURE__ */ new WeakMap(), oa = /* @__PURE__ */ new WeakMap(), sa = /* @__PURE__ */ new WeakMap(), ia = /* @__PURE__ */ new WeakSet(), ca = function() {
-		this.ended || g(this, oa, void 0, "f");
-	}, la = function(e, t) {
+	[(_ResponseStream_params = /* @__PURE__ */ new WeakMap(), _ResponseStream_currentResponseSnapshot = /* @__PURE__ */ new WeakMap(), _ResponseStream_finalResponse = /* @__PURE__ */ new WeakMap(), _ResponseStream_instances = /* @__PURE__ */ new WeakSet(), _ResponseStream_beginRequest = function _ResponseStream_beginRequest() {
 		if (this.ended) return;
-		let n = (e, n) => {
-			(t == null || n.sequence_number > t) && this._emit(e, n);
-		}, r = _(this, ia, "m", da).call(this, e);
-		switch (n("event", e), e.type) {
+		__classPrivateFieldSet(this, _ResponseStream_currentResponseSnapshot, void 0, "f");
+	}, _ResponseStream_addEvent = function _ResponseStream_addEvent(event, starting_after) {
+		if (this.ended) return;
+		const maybeEmit = (name, event) => {
+			if (starting_after == null || event.sequence_number > starting_after) this._emit(name, event);
+		};
+		const response = __classPrivateFieldGet(this, _ResponseStream_instances, "m", _ResponseStream_accumulateResponse).call(this, event);
+		maybeEmit("event", event);
+		switch (event.type) {
 			case "response.output_text.delta": {
-				let t = r.output[e.output_index];
-				if (!t) throw new b(`missing output at index ${e.output_index}`);
-				if (t.type === "message") {
-					let r = t.content[e.content_index];
-					if (!r) throw new b(`missing content at index ${e.content_index}`);
-					if (r.type !== "output_text") throw new b(`expected content to be 'output_text', got ${r.type}`);
-					n("response.output_text.delta", {
-						...e,
-						snapshot: r.text
+				const output = response.output[event.output_index];
+				if (!output) throw new OpenAIError(`missing output at index ${event.output_index}`);
+				if (output.type === "message") {
+					const content = output.content[event.content_index];
+					if (!content) throw new OpenAIError(`missing content at index ${event.content_index}`);
+					if (content.type !== "output_text") throw new OpenAIError(`expected content to be 'output_text', got ${content.type}`);
+					maybeEmit("response.output_text.delta", {
+						...event,
+						snapshot: content.text
 					});
 				}
 				break;
 			}
 			case "response.function_call_arguments.delta": {
-				let t = r.output[e.output_index];
-				if (!t) throw new b(`missing output at index ${e.output_index}`);
-				t.type === "function_call" && n("response.function_call_arguments.delta", {
-					...e,
-					snapshot: t.arguments
+				const output = response.output[event.output_index];
+				if (!output) throw new OpenAIError(`missing output at index ${event.output_index}`);
+				if (output.type === "function_call") maybeEmit("response.function_call_arguments.delta", {
+					...event,
+					snapshot: output.arguments
 				});
 				break;
 			}
 			default:
-				n(e.type, e);
+				maybeEmit(event.type, event);
 				break;
 		}
-	}, ua = function() {
-		if (this.ended) throw new b("stream has ended, this shouldn't happen");
-		let e = _(this, oa, "f");
-		if (!e) throw new b("request ended without sending any events");
-		g(this, oa, void 0, "f");
-		let t = pa(e, _(this, aa, "f"));
-		return g(this, sa, t, "f"), t;
-	}, da = function(e) {
-		let t = _(this, oa, "f");
-		if (!t) {
-			if (e.type !== "response.created") throw new b(`When snapshot hasn't been set yet, expected 'response.created' event, got ${e.type}`);
-			return t = g(this, oa, e.response, "f"), t;
+	}, _ResponseStream_endRequest = function _ResponseStream_endRequest() {
+		if (this.ended) throw new OpenAIError(`stream has ended, this shouldn't happen`);
+		const snapshot = __classPrivateFieldGet(this, _ResponseStream_currentResponseSnapshot, "f");
+		if (!snapshot) throw new OpenAIError(`request ended without sending any events`);
+		__classPrivateFieldSet(this, _ResponseStream_currentResponseSnapshot, void 0, "f");
+		const parsedResponse = finalizeResponse(snapshot, __classPrivateFieldGet(this, _ResponseStream_params, "f"));
+		__classPrivateFieldSet(this, _ResponseStream_finalResponse, parsedResponse, "f");
+		return parsedResponse;
+	}, _ResponseStream_accumulateResponse = function _ResponseStream_accumulateResponse(event) {
+		let snapshot = __classPrivateFieldGet(this, _ResponseStream_currentResponseSnapshot, "f");
+		if (!snapshot) {
+			if (event.type !== "response.created") throw new OpenAIError(`When snapshot hasn't been set yet, expected 'response.created' event, got ${event.type}`);
+			snapshot = __classPrivateFieldSet(this, _ResponseStream_currentResponseSnapshot, event.response, "f");
+			return snapshot;
 		}
-		switch (e.type) {
+		switch (event.type) {
 			case "response.output_item.added":
-				t.output.push(e.item);
+				snapshot.output.push(event.item);
 				break;
 			case "response.content_part.added": {
-				let n = t.output[e.output_index];
-				if (!n) throw new b(`missing output at index ${e.output_index}`);
-				let r = n.type, i = e.part;
-				r === "message" && i.type !== "reasoning_text" ? n.content.push(i) : r === "reasoning" && i.type === "reasoning_text" && (n.content ||= [], n.content.push(i));
+				const output = snapshot.output[event.output_index];
+				if (!output) throw new OpenAIError(`missing output at index ${event.output_index}`);
+				const type = output.type;
+				const part = event.part;
+				if (type === "message" && part.type !== "reasoning_text") output.content.push(part);
+				else if (type === "reasoning" && part.type === "reasoning_text") {
+					if (!output.content) output.content = [];
+					output.content.push(part);
+				}
 				break;
 			}
 			case "response.output_text.delta": {
-				let n = t.output[e.output_index];
-				if (!n) throw new b(`missing output at index ${e.output_index}`);
-				if (n.type === "message") {
-					let t = n.content[e.content_index];
-					if (!t) throw new b(`missing content at index ${e.content_index}`);
-					if (t.type !== "output_text") throw new b(`expected content to be 'output_text', got ${t.type}`);
-					t.text += e.delta;
+				const output = snapshot.output[event.output_index];
+				if (!output) throw new OpenAIError(`missing output at index ${event.output_index}`);
+				if (output.type === "message") {
+					const content = output.content[event.content_index];
+					if (!content) throw new OpenAIError(`missing content at index ${event.content_index}`);
+					if (content.type !== "output_text") throw new OpenAIError(`expected content to be 'output_text', got ${content.type}`);
+					content.text += event.delta;
 				}
 				break;
 			}
 			case "response.function_call_arguments.delta": {
-				let n = t.output[e.output_index];
-				if (!n) throw new b(`missing output at index ${e.output_index}`);
-				n.type === "function_call" && (n.arguments += e.delta);
+				const output = snapshot.output[event.output_index];
+				if (!output) throw new OpenAIError(`missing output at index ${event.output_index}`);
+				if (output.type === "function_call") output.arguments += event.delta;
 				break;
 			}
 			case "response.reasoning_text.delta": {
-				let n = t.output[e.output_index];
-				if (!n) throw new b(`missing output at index ${e.output_index}`);
-				if (n.type === "reasoning") {
-					let t = n.content?.[e.content_index];
-					if (!t) throw new b(`missing content at index ${e.content_index}`);
-					if (t.type !== "reasoning_text") throw new b(`expected content to be 'reasoning_text', got ${t.type}`);
-					t.text += e.delta;
+				const output = snapshot.output[event.output_index];
+				if (!output) throw new OpenAIError(`missing output at index ${event.output_index}`);
+				if (output.type === "reasoning") {
+					const content = output.content?.[event.content_index];
+					if (!content) throw new OpenAIError(`missing content at index ${event.content_index}`);
+					if (content.type !== "reasoning_text") throw new OpenAIError(`expected content to be 'reasoning_text', got ${content.type}`);
+					content.text += event.delta;
 				}
 				break;
 			}
 			case "response.completed":
-				g(this, oa, e.response, "f");
+				__classPrivateFieldSet(this, _ResponseStream_currentResponseSnapshot, event.response, "f");
 				break;
 		}
-		return t;
+		return snapshot;
 	}, Symbol.asyncIterator)]() {
-		let e = [], t = [], n = !1;
-		return this.on("event", (n) => {
-			let r = t.shift();
-			r ? r.resolve(n) : e.push(n);
-		}), this.on("end", () => {
-			n = !0;
-			for (let e of t) e.resolve(void 0);
-			t.length = 0;
-		}), this.on("abort", (e) => {
-			n = !0;
-			for (let n of t) n.reject(e);
-			t.length = 0;
-		}), this.on("error", (e) => {
-			n = !0;
-			for (let n of t) n.reject(e);
-			t.length = 0;
-		}), {
-			next: async () => e.length ? {
-				value: e.shift(),
-				done: !1
-			} : n ? {
-				value: void 0,
-				done: !0
-			} : new Promise((e, n) => t.push({
-				resolve: e,
-				reject: n
-			})).then((e) => e ? {
-				value: e,
-				done: !1
-			} : {
-				value: void 0,
-				done: !0
-			}),
-			return: async () => (this.abort(), {
-				value: void 0,
-				done: !0
-			})
+		const pushQueue = [];
+		const readQueue = [];
+		let done = false;
+		this.on("event", (event) => {
+			const reader = readQueue.shift();
+			if (reader) reader.resolve(event);
+			else pushQueue.push(event);
+		});
+		this.on("end", () => {
+			done = true;
+			for (const reader of readQueue) reader.resolve(void 0);
+			readQueue.length = 0;
+		});
+		this.on("abort", (err) => {
+			done = true;
+			for (const reader of readQueue) reader.reject(err);
+			readQueue.length = 0;
+		});
+		this.on("error", (err) => {
+			done = true;
+			for (const reader of readQueue) reader.reject(err);
+			readQueue.length = 0;
+		});
+		return {
+			next: async () => {
+				if (!pushQueue.length) {
+					if (done) return {
+						value: void 0,
+						done: true
+					};
+					return new Promise((resolve, reject) => readQueue.push({
+						resolve,
+						reject
+					})).then((event) => event ? {
+						value: event,
+						done: false
+					} : {
+						value: void 0,
+						done: true
+					});
+				}
+				return {
+					value: pushQueue.shift(),
+					done: false
+				};
+			},
+			return: async () => {
+				this.abort();
+				return {
+					value: void 0,
+					done: true
+				};
+			}
 		};
 	}
+	/**
+	* @returns a promise that resolves with the final Response, or rejects
+	* if an error occurred or the stream ended prematurely without producing a REsponse.
+	*/
 	async finalResponse() {
 		await this.done();
-		let e = _(this, sa, "f");
-		if (!e) throw new b("stream ended without producing a ChatCompletion");
-		return e;
+		const response = __classPrivateFieldGet(this, _ResponseStream_finalResponse, "f");
+		if (!response) throw new OpenAIError("stream ended without producing a ChatCompletion");
+		return response;
 	}
 };
-function pa(e, t) {
-	return Xi(e, t);
+function finalizeResponse(snapshot, params) {
+	return maybeParseResponse(snapshot, params);
 }
 //#endregion
 //#region node_modules/openai/resources/responses/input-items.mjs
-var ma = class extends P {
-	list(e, t = {}, n) {
-		return this._client.getAPIList(F`/responses/${e}/input_items`, A, {
-			query: t,
-			...n,
-			__security: { bearerAuth: !0 }
-		});
-	}
-}, ha = class extends P {
-	count(e = {}, t) {
-		return this._client.post("/responses/input_tokens", {
-			body: e,
-			...t,
-			__security: { bearerAuth: !0 }
-		});
-	}
-}, ga = class extends P {
-	constructor() {
-		super(...arguments), this.inputItems = new ma(this._client), this.inputTokens = new ha(this._client);
-	}
-	create(e, t) {
-		return this._client.post("/responses", {
-			body: e,
-			...t,
-			stream: e.stream ?? !1,
-			__security: { bearerAuth: !0 }
-		})._thenUnwrap((e) => ("object" in e && e.object === "response" && ra(e), e));
-	}
-	retrieve(e, t = {}, n) {
-		return this._client.get(F`/responses/${e}`, {
-			query: t,
-			...n,
-			stream: t?.stream ?? !1,
-			__security: { bearerAuth: !0 }
-		})._thenUnwrap((e) => ("object" in e && e.object === "response" && ra(e), e));
-	}
-	delete(e, t) {
-		return this._client.delete(F`/responses/${e}`, {
-			...t,
-			headers: V([{ Accept: "*/*" }, t?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-	parse(e, t) {
-		return this._client.responses.create(e, t)._thenUnwrap((t) => Zi(t, e));
-	}
-	stream(e, t) {
-		return fa.createResponse(this._client, e, t);
-	}
-	cancel(e, t) {
-		return this._client.post(F`/responses/${e}/cancel`, {
-			...t,
-			__security: { bearerAuth: !0 }
-		});
-	}
-	compact(e, t) {
-		return this._client.post("/responses/compact", {
-			body: e,
-			...t,
-			__security: { bearerAuth: !0 }
+var InputItems = class extends APIResource {
+	/**
+	* Returns a list of input items for a given response.
+	*
+	* @example
+	* ```ts
+	* // Automatically fetches more pages as needed.
+	* for await (const responseItem of client.responses.inputItems.list(
+	*   'response_id',
+	* )) {
+	*   // ...
+	* }
+	* ```
+	*/
+	list(responseID, query = {}, options) {
+		return this._client.getAPIList(path$2`/responses/${responseID}/input_items`, CursorPage, {
+			query,
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
 };
-ga.InputItems = ma, ga.InputTokens = ha;
+//#endregion
+//#region node_modules/openai/resources/responses/input-tokens.mjs
+var InputTokens = class extends APIResource {
+	/**
+	* Returns input token counts of the request.
+	*
+	* Returns an object with `object` set to `response.input_tokens` and an
+	* `input_tokens` count.
+	*
+	* @example
+	* ```ts
+	* const response = await client.responses.inputTokens.count();
+	* ```
+	*/
+	count(body = {}, options) {
+		return this._client.post("/responses/input_tokens", {
+			body,
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/responses/responses.mjs
+var Responses = class extends APIResource {
+	constructor() {
+		super(...arguments);
+		this.inputItems = new InputItems(this._client);
+		this.inputTokens = new InputTokens(this._client);
+	}
+	create(body, options) {
+		return this._client.post("/responses", {
+			body,
+			...options,
+			stream: body.stream ?? false,
+			__security: { bearerAuth: true }
+		})._thenUnwrap((rsp) => {
+			if ("object" in rsp && rsp.object === "response") addOutputText(rsp);
+			return rsp;
+		});
+	}
+	retrieve(responseID, query = {}, options) {
+		return this._client.get(path$2`/responses/${responseID}`, {
+			query,
+			...options,
+			stream: query?.stream ?? false,
+			__security: { bearerAuth: true }
+		})._thenUnwrap((rsp) => {
+			if ("object" in rsp && rsp.object === "response") addOutputText(rsp);
+			return rsp;
+		});
+	}
+	/**
+	* Deletes a model response with the given ID.
+	*
+	* @example
+	* ```ts
+	* await client.responses.delete(
+	*   'resp_677efb5139a88190b512bc3fef8e535d',
+	* );
+	* ```
+	*/
+	delete(responseID, options) {
+		return this._client.delete(path$2`/responses/${responseID}`, {
+			...options,
+			headers: buildHeaders([{ Accept: "*/*" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+	parse(body, options) {
+		return this._client.responses.create(body, options)._thenUnwrap((response) => parseResponse(response, body));
+	}
+	/**
+	* Creates a model response stream
+	*/
+	stream(body, options) {
+		return ResponseStream.createResponse(this._client, body, options);
+	}
+	/**
+	* Cancels a model response with the given ID. Only responses created with the
+	* `background` parameter set to `true` can be cancelled.
+	* [Learn more](https://platform.openai.com/docs/guides/background).
+	*
+	* @example
+	* ```ts
+	* const response = await client.responses.cancel(
+	*   'resp_677efb5139a88190b512bc3fef8e535d',
+	* );
+	* ```
+	*/
+	cancel(responseID, options) {
+		return this._client.post(path$2`/responses/${responseID}/cancel`, {
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Compact a conversation. Returns a compacted response object.
+	*
+	* Learn when and how to compact long-running conversations in the
+	* [conversation state guide](https://platform.openai.com/docs/guides/conversation-state#managing-the-context-window).
+	* For ZDR-compatible compaction details, see
+	* [Compaction (advanced)](https://platform.openai.com/docs/guides/conversation-state#compaction-advanced).
+	*
+	* @example
+	* ```ts
+	* const compactedResponse = await client.responses.compact({
+	*   model: 'gpt-5.4',
+	* });
+	* ```
+	*/
+	compact(body, options) {
+		return this._client.post("/responses/compact", {
+			body,
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+};
+Responses.InputItems = InputItems;
+Responses.InputTokens = InputTokens;
 //#endregion
 //#region node_modules/openai/resources/skills/content.mjs
-var _a = class extends P {
-	retrieve(e, t) {
-		return this._client.get(F`/skills/${e}/content`, {
-			...t,
-			headers: V([{ Accept: "application/binary" }, t?.headers]),
-			__security: { bearerAuth: !0 },
-			__binaryResponse: !0
-		});
-	}
-}, va = class extends P {
-	retrieve(e, t, n) {
-		let { skill_id: r } = t;
-		return this._client.get(F`/skills/${r}/versions/${e}/content`, {
-			...n,
-			headers: V([{ Accept: "application/binary" }, n?.headers]),
-			__security: { bearerAuth: !0 },
-			__binaryResponse: !0
-		});
-	}
-}, ya = class extends P {
-	constructor() {
-		super(...arguments), this.content = new va(this._client);
-	}
-	create(e, t = {}, n) {
-		return this._client.post(F`/skills/${e}/versions`, zt({
-			body: t,
-			...n,
-			__security: { bearerAuth: !0 }
-		}, this._client));
-	}
-	retrieve(e, t, n) {
-		let { skill_id: r } = t;
-		return this._client.get(F`/skills/${r}/versions/${e}`, {
-			...n,
-			__security: { bearerAuth: !0 }
-		});
-	}
-	list(e, t = {}, n) {
-		return this._client.getAPIList(F`/skills/${e}/versions`, A, {
-			query: t,
-			...n,
-			__security: { bearerAuth: !0 }
-		});
-	}
-	delete(e, t, n) {
-		let { skill_id: r } = t;
-		return this._client.delete(F`/skills/${r}/versions/${e}`, {
-			...n,
-			__security: { bearerAuth: !0 }
+var Content$1 = class extends APIResource {
+	/**
+	* Download a skill zip bundle by its ID.
+	*/
+	retrieve(skillID, options) {
+		return this._client.get(path$2`/skills/${skillID}/content`, {
+			...options,
+			headers: buildHeaders([{ Accept: "application/binary" }, options?.headers]),
+			__security: { bearerAuth: true },
+			__binaryResponse: true
 		});
 	}
 };
-ya.Content = va;
+//#endregion
+//#region node_modules/openai/resources/skills/versions/content.mjs
+var Content = class extends APIResource {
+	/**
+	* Download a skill version zip bundle.
+	*/
+	retrieve(version, params, options) {
+		const { skill_id } = params;
+		return this._client.get(path$2`/skills/${skill_id}/versions/${version}/content`, {
+			...options,
+			headers: buildHeaders([{ Accept: "application/binary" }, options?.headers]),
+			__security: { bearerAuth: true },
+			__binaryResponse: true
+		});
+	}
+};
+//#endregion
+//#region node_modules/openai/resources/skills/versions/versions.mjs
+var Versions = class extends APIResource {
+	constructor() {
+		super(...arguments);
+		this.content = new Content(this._client);
+	}
+	/**
+	* Create a new immutable skill version.
+	*/
+	create(skillID, body = {}, options) {
+		return this._client.post(path$2`/skills/${skillID}/versions`, maybeMultipartFormRequestOptions({
+			body,
+			...options,
+			__security: { bearerAuth: true }
+		}, this._client));
+	}
+	/**
+	* Get a specific skill version.
+	*/
+	retrieve(version, params, options) {
+		const { skill_id } = params;
+		return this._client.get(path$2`/skills/${skill_id}/versions/${version}`, {
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* List skill versions for a skill.
+	*/
+	list(skillID, query = {}, options) {
+		return this._client.getAPIList(path$2`/skills/${skillID}/versions`, CursorPage, {
+			query,
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Delete a skill version.
+	*/
+	delete(version, params, options) {
+		const { skill_id } = params;
+		return this._client.delete(path$2`/skills/${skill_id}/versions/${version}`, {
+			...options,
+			__security: { bearerAuth: true }
+		});
+	}
+};
+Versions.Content = Content;
 //#endregion
 //#region node_modules/openai/resources/skills/skills.mjs
-var ba = class extends P {
+var Skills = class extends APIResource {
 	constructor() {
-		super(...arguments), this.content = new _a(this._client), this.versions = new ya(this._client);
+		super(...arguments);
+		this.content = new Content$1(this._client);
+		this.versions = new Versions(this._client);
 	}
-	create(e = {}, t) {
-		return this._client.post("/skills", zt({
-			body: e,
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* Create a new skill.
+	*/
+	create(body = {}, options) {
+		return this._client.post("/skills", maybeMultipartFormRequestOptions({
+			body,
+			...options,
+			__security: { bearerAuth: true }
 		}, this._client));
 	}
-	retrieve(e, t) {
-		return this._client.get(F`/skills/${e}`, {
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* Get a skill by its ID.
+	*/
+	retrieve(skillID, options) {
+		return this._client.get(path$2`/skills/${skillID}`, {
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	update(e, t, n) {
-		return this._client.post(F`/skills/${e}`, {
-			body: t,
-			...n,
-			__security: { bearerAuth: !0 }
+	/**
+	* Update the default version pointer for a skill.
+	*/
+	update(skillID, body, options) {
+		return this._client.post(path$2`/skills/${skillID}`, {
+			body,
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	list(e = {}, t) {
-		return this._client.getAPIList("/skills", A, {
-			query: e,
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* List all skills for the current project.
+	*/
+	list(query = {}, options) {
+		return this._client.getAPIList("/skills", CursorPage, {
+			query,
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	delete(e, t) {
-		return this._client.delete(F`/skills/${e}`, {
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* Delete a skill by its ID.
+	*/
+	delete(skillID, options) {
+		return this._client.delete(path$2`/skills/${skillID}`, {
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
 };
-ba.Content = _a, ba.Versions = ya;
+Skills.Content = Content$1;
+Skills.Versions = Versions;
 //#endregion
 //#region node_modules/openai/resources/uploads/parts.mjs
-var xa = class extends P {
-	create(e, t, n) {
-		return this._client.post(F`/uploads/${e}/parts`, N({
-			body: t,
-			...n,
-			__security: { bearerAuth: !0 }
+/**
+* Use Uploads to upload large files in multiple parts.
+*/
+var Parts = class extends APIResource {
+	/**
+	* Adds a
+	* [Part](https://platform.openai.com/docs/api-reference/uploads/part-object) to an
+	* [Upload](https://platform.openai.com/docs/api-reference/uploads/object) object.
+	* A Part represents a chunk of bytes from the file you are trying to upload.
+	*
+	* Each Part can be at most 64 MB, and you can add Parts until you hit the Upload
+	* maximum of 8 GB.
+	*
+	* It is possible to add multiple Parts in parallel. You can decide the intended
+	* order of the Parts when you
+	* [complete the Upload](https://platform.openai.com/docs/api-reference/uploads/complete).
+	*/
+	create(uploadID, body, options) {
+		return this._client.post(path$2`/uploads/${uploadID}/parts`, multipartFormRequestOptions({
+			body,
+			...options,
+			__security: { bearerAuth: true }
 		}, this._client));
 	}
-}, Sa = class extends P {
+};
+//#endregion
+//#region node_modules/openai/resources/uploads/uploads.mjs
+/**
+* Use Uploads to upload large files in multiple parts.
+*/
+var Uploads = class extends APIResource {
 	constructor() {
-		super(...arguments), this.parts = new xa(this._client);
+		super(...arguments);
+		this.parts = new Parts(this._client);
 	}
-	create(e, t) {
+	/**
+	* Creates an intermediate
+	* [Upload](https://platform.openai.com/docs/api-reference/uploads/object) object
+	* that you can add
+	* [Parts](https://platform.openai.com/docs/api-reference/uploads/part-object) to.
+	* Currently, an Upload can accept at most 8 GB in total and expires after an hour
+	* after you create it.
+	*
+	* Once you complete the Upload, we will create a
+	* [File](https://platform.openai.com/docs/api-reference/files/object) object that
+	* contains all the parts you uploaded. This File is usable in the rest of our
+	* platform as a regular File object.
+	*
+	* For certain `purpose` values, the correct `mime_type` must be specified. Please
+	* refer to documentation for the
+	* [supported MIME types for your use case](https://platform.openai.com/docs/assistants/tools/file-search#supported-files).
+	*
+	* For guidance on the proper filename extensions for each purpose, please follow
+	* the documentation on
+	* [creating a File](https://platform.openai.com/docs/api-reference/files/create).
+	*
+	* Returns the Upload object with status `pending`.
+	*/
+	create(body, options) {
 		return this._client.post("/uploads", {
-			body: e,
-			...t,
-			__security: { bearerAuth: !0 }
+			body,
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	cancel(e, t) {
-		return this._client.post(F`/uploads/${e}/cancel`, {
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* Cancels the Upload. No Parts may be added after an Upload is cancelled.
+	*
+	* Returns the Upload object with status `cancelled`.
+	*/
+	cancel(uploadID, options) {
+		return this._client.post(path$2`/uploads/${uploadID}/cancel`, {
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	complete(e, t, n) {
-		return this._client.post(F`/uploads/${e}/complete`, {
-			body: t,
-			...n,
-			__security: { bearerAuth: !0 }
+	/**
+	* Completes the
+	* [Upload](https://platform.openai.com/docs/api-reference/uploads/object).
+	*
+	* Within the returned Upload object, there is a nested
+	* [File](https://platform.openai.com/docs/api-reference/files/object) object that
+	* is ready to use in the rest of the platform.
+	*
+	* You can specify the order of the Parts by passing in an ordered list of the Part
+	* IDs.
+	*
+	* The number of bytes uploaded upon completion must match the number of bytes
+	* initially specified when creating the Upload object. No Parts may be added after
+	* an Upload is completed. Returns the Upload object with status `completed`,
+	* including an additional `file` property containing the created usable File
+	* object.
+	*/
+	complete(uploadID, body, options) {
+		return this._client.post(path$2`/uploads/${uploadID}/complete`, {
+			body,
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
 };
-Sa.Parts = xa;
+Uploads.Parts = Parts;
 //#endregion
 //#region node_modules/openai/lib/Util.mjs
-var Ca = async (e) => {
-	let t = await Promise.allSettled(e), n = t.filter((e) => e.status === "rejected");
-	if (n.length) {
-		for (let e of n) console.error(e.reason);
-		throw Error(`${n.length} promise(s) failed - see the above errors`);
+/**
+* Like `Promise.allSettled()` but throws an error if any promises are rejected.
+*/
+var allSettledWithThrow = async (promises) => {
+	const results = await Promise.allSettled(promises);
+	const rejected = results.filter((result) => result.status === "rejected");
+	if (rejected.length) {
+		for (const result of rejected) console.error(result.reason);
+		throw new Error(`${rejected.length} promise(s) failed - see the above errors`);
 	}
-	let r = [];
-	for (let e of t) e.status === "fulfilled" && r.push(e.value);
-	return r;
-}, wa = class extends P {
-	create(e, t, n) {
-		return this._client.post(F`/vector_stores/${e}/file_batches`, {
-			body: t,
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
+	const values = [];
+	for (const result of results) if (result.status === "fulfilled") values.push(result.value);
+	return values;
+};
+//#endregion
+//#region node_modules/openai/resources/vector-stores/file-batches.mjs
+var FileBatches = class extends APIResource {
+	/**
+	* Create a vector store file batch.
+	*/
+	create(vectorStoreID, body, options) {
+		return this._client.post(path$2`/vector_stores/${vectorStoreID}/file_batches`, {
+			body,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
-	retrieve(e, t, n) {
-		let { vector_store_id: r } = t;
-		return this._client.get(F`/vector_stores/${r}/file_batches/${e}`, {
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
+	/**
+	* Retrieves a vector store file batch.
+	*/
+	retrieve(batchID, params, options) {
+		const { vector_store_id } = params;
+		return this._client.get(path$2`/vector_stores/${vector_store_id}/file_batches/${batchID}`, {
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
-	cancel(e, t, n) {
-		let { vector_store_id: r } = t;
-		return this._client.post(F`/vector_stores/${r}/file_batches/${e}/cancel`, {
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
+	/**
+	* Cancel a vector store file batch. This attempts to cancel the processing of
+	* files in this batch as soon as possible.
+	*/
+	cancel(batchID, params, options) {
+		const { vector_store_id } = params;
+		return this._client.post(path$2`/vector_stores/${vector_store_id}/file_batches/${batchID}/cancel`, {
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
-	async createAndPoll(e, t, n) {
-		let r = await this.create(e, t);
-		return await this.poll(e, r.id, n);
+	/**
+	* Create a vector store batch and poll until all files have been processed.
+	*/
+	async createAndPoll(vectorStoreId, body, options) {
+		const batch = await this.create(vectorStoreId, body);
+		return await this.poll(vectorStoreId, batch.id, options);
 	}
-	listFiles(e, t, n) {
-		let { vector_store_id: r, ...i } = t;
-		return this._client.getAPIList(F`/vector_stores/${r}/file_batches/${e}/files`, A, {
-			query: i,
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
+	/**
+	* Returns a list of vector store files in a batch.
+	*/
+	listFiles(batchID, params, options) {
+		const { vector_store_id, ...query } = params;
+		return this._client.getAPIList(path$2`/vector_stores/${vector_store_id}/file_batches/${batchID}/files`, CursorPage, {
+			query,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
-	async poll(e, t, n) {
-		let r = V([n?.headers, {
+	/**
+	* Wait for the given file batch to be processed.
+	*
+	* Note: this will return even if one of the files failed to process, you need to
+	* check batch.file_counts.failed_count to handle this case.
+	*/
+	async poll(vectorStoreID, batchID, options) {
+		const headers = buildHeaders([options?.headers, {
 			"X-Stainless-Poll-Helper": "true",
-			"X-Stainless-Custom-Poll-Interval": n?.pollIntervalMs?.toString() ?? void 0
+			"X-Stainless-Custom-Poll-Interval": options?.pollIntervalMs?.toString() ?? void 0
 		}]);
-		for (;;) {
-			let { data: i, response: a } = await this.retrieve(t, { vector_store_id: e }, {
-				...n,
-				headers: r
+		while (true) {
+			const { data: batch, response } = await this.retrieve(batchID, { vector_store_id: vectorStoreID }, {
+				...options,
+				headers
 			}).withResponse();
-			switch (i.status) {
+			switch (batch.status) {
 				case "in_progress":
-					let e = 5e3;
-					if (n?.pollIntervalMs) e = n.pollIntervalMs;
+					let sleepInterval = 5e3;
+					if (options?.pollIntervalMs) sleepInterval = options.pollIntervalMs;
 					else {
-						let t = a.headers.get("openai-poll-after-ms");
-						if (t) {
-							let n = parseInt(t);
-							isNaN(n) || (e = n);
+						const headerInterval = response.headers.get("openai-poll-after-ms");
+						if (headerInterval) {
+							const headerIntervalMs = parseInt(headerInterval);
+							if (!isNaN(headerIntervalMs)) sleepInterval = headerIntervalMs;
 						}
 					}
-					await we(e);
+					await sleep(sleepInterval);
 					break;
 				case "failed":
 				case "cancelled":
-				case "completed": return i;
+				case "completed": return batch;
 			}
 		}
 	}
-	async uploadAndPoll(e, { files: t, fileIds: n = [] }, r) {
-		if (t == null || t.length == 0) throw Error("No `files` provided to process. If you've already uploaded files you should use `.createAndPoll()` instead");
-		let i = r?.maxConcurrency ?? 5, a = Math.min(i, t.length), o = this._client, s = t.values(), c = [...n];
-		async function l(e) {
-			for (let t of e) {
-				let e = await o.files.create({
-					file: t,
+	/**
+	* Uploads the given files concurrently and then creates a vector store file batch.
+	*
+	* The concurrency limit is configurable using the `maxConcurrency` parameter.
+	*/
+	async uploadAndPoll(vectorStoreId, { files, fileIds = [] }, options) {
+		if (files == null || files.length == 0) throw new Error(`No \`files\` provided to process. If you've already uploaded files you should use \`.createAndPoll()\` instead`);
+		const configuredConcurrency = options?.maxConcurrency ?? 5;
+		const concurrencyLimit = Math.min(configuredConcurrency, files.length);
+		const client = this._client;
+		const fileIterator = files.values();
+		const allFileIds = [...fileIds];
+		async function processFiles(iterator) {
+			for (let item of iterator) {
+				const fileObj = await client.files.create({
+					file: item,
 					purpose: "assistants"
-				}, r);
-				c.push(e.id);
+				}, options);
+				allFileIds.push(fileObj.id);
 			}
 		}
-		return await Ca(Array(a).fill(s).map(l)), await this.createAndPoll(e, { file_ids: c });
+		await allSettledWithThrow(Array(concurrencyLimit).fill(fileIterator).map(processFiles));
+		return await this.createAndPoll(vectorStoreId, { file_ids: allFileIds });
 	}
-}, Ta = class extends P {
-	create(e, t, n) {
-		return this._client.post(F`/vector_stores/${e}/files`, {
-			body: t,
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
+};
+//#endregion
+//#region node_modules/openai/resources/vector-stores/files.mjs
+var Files = class extends APIResource {
+	/**
+	* Create a vector store file by attaching a
+	* [File](https://platform.openai.com/docs/api-reference/files) to a
+	* [vector store](https://platform.openai.com/docs/api-reference/vector-stores/object).
+	*/
+	create(vectorStoreID, body, options) {
+		return this._client.post(path$2`/vector_stores/${vectorStoreID}/files`, {
+			body,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
-	retrieve(e, t, n) {
-		let { vector_store_id: r } = t;
-		return this._client.get(F`/vector_stores/${r}/files/${e}`, {
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
+	/**
+	* Retrieves a vector store file.
+	*/
+	retrieve(fileID, params, options) {
+		const { vector_store_id } = params;
+		return this._client.get(path$2`/vector_stores/${vector_store_id}/files/${fileID}`, {
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
-	update(e, t, n) {
-		let { vector_store_id: r, ...i } = t;
-		return this._client.post(F`/vector_stores/${r}/files/${e}`, {
-			body: i,
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
+	/**
+	* Update attributes on a vector store file.
+	*/
+	update(fileID, params, options) {
+		const { vector_store_id, ...body } = params;
+		return this._client.post(path$2`/vector_stores/${vector_store_id}/files/${fileID}`, {
+			body,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
-	list(e, t = {}, n) {
-		return this._client.getAPIList(F`/vector_stores/${e}/files`, A, {
-			query: t,
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
+	/**
+	* Returns a list of vector store files.
+	*/
+	list(vectorStoreID, query = {}, options) {
+		return this._client.getAPIList(path$2`/vector_stores/${vectorStoreID}/files`, CursorPage, {
+			query,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
-	delete(e, t, n) {
-		let { vector_store_id: r } = t;
-		return this._client.delete(F`/vector_stores/${r}/files/${e}`, {
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
+	/**
+	* Delete a vector store file. This will remove the file from the vector store but
+	* the file itself will not be deleted. To delete the file, use the
+	* [delete file](https://platform.openai.com/docs/api-reference/files/delete)
+	* endpoint.
+	*/
+	delete(fileID, params, options) {
+		const { vector_store_id } = params;
+		return this._client.delete(path$2`/vector_stores/${vector_store_id}/files/${fileID}`, {
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
-	async createAndPoll(e, t, n) {
-		let r = await this.create(e, t, n);
-		return await this.poll(e, r.id, n);
+	/**
+	* Attach a file to the given vector store and wait for it to be processed.
+	*/
+	async createAndPoll(vectorStoreId, body, options) {
+		const file = await this.create(vectorStoreId, body, options);
+		return await this.poll(vectorStoreId, file.id, options);
 	}
-	async poll(e, t, n) {
-		let r = V([n?.headers, {
+	/**
+	* Wait for the vector store file to finish processing.
+	*
+	* Note: this will return even if the file failed to process, you need to check
+	* file.last_error and file.status to handle these cases
+	*/
+	async poll(vectorStoreID, fileID, options) {
+		const headers = buildHeaders([options?.headers, {
 			"X-Stainless-Poll-Helper": "true",
-			"X-Stainless-Custom-Poll-Interval": n?.pollIntervalMs?.toString() ?? void 0
+			"X-Stainless-Custom-Poll-Interval": options?.pollIntervalMs?.toString() ?? void 0
 		}]);
-		for (;;) {
-			let i = await this.retrieve(t, { vector_store_id: e }, {
-				...n,
-				headers: r
-			}).withResponse(), a = i.data;
-			switch (a.status) {
+		while (true) {
+			const fileResponse = await this.retrieve(fileID, { vector_store_id: vectorStoreID }, {
+				...options,
+				headers
+			}).withResponse();
+			const file = fileResponse.data;
+			switch (file.status) {
 				case "in_progress":
-					let e = 5e3;
-					if (n?.pollIntervalMs) e = n.pollIntervalMs;
+					let sleepInterval = 5e3;
+					if (options?.pollIntervalMs) sleepInterval = options.pollIntervalMs;
 					else {
-						let t = i.response.headers.get("openai-poll-after-ms");
-						if (t) {
-							let n = parseInt(t);
-							isNaN(n) || (e = n);
+						const headerInterval = fileResponse.response.headers.get("openai-poll-after-ms");
+						if (headerInterval) {
+							const headerIntervalMs = parseInt(headerInterval);
+							if (!isNaN(headerIntervalMs)) sleepInterval = headerIntervalMs;
 						}
 					}
-					await we(e);
+					await sleep(sleepInterval);
 					break;
 				case "failed":
-				case "completed": return a;
+				case "completed": return file;
 			}
 		}
 	}
-	async upload(e, t, n) {
-		let r = await this._client.files.create({
-			file: t,
+	/**
+	* Upload a file to the `files` API and then attach it to the given vector store.
+	*
+	* Note the file will be asynchronously processed (you can use the alternative
+	* polling helper method to wait for processing to complete).
+	*/
+	async upload(vectorStoreId, file, options) {
+		const fileInfo = await this._client.files.create({
+			file,
 			purpose: "assistants"
-		}, n);
-		return this.create(e, { file_id: r.id }, n);
+		}, options);
+		return this.create(vectorStoreId, { file_id: fileInfo.id }, options);
 	}
-	async uploadAndPoll(e, t, n) {
-		let r = await this.upload(e, t, n);
-		return await this.poll(e, r.id, n);
+	/**
+	* Add a file to a vector store and poll until processing is complete.
+	*/
+	async uploadAndPoll(vectorStoreId, file, options) {
+		const fileInfo = await this.upload(vectorStoreId, file, options);
+		return await this.poll(vectorStoreId, fileInfo.id, options);
 	}
-	content(e, t, n) {
-		let { vector_store_id: r } = t;
-		return this._client.getAPIList(F`/vector_stores/${r}/files/${e}/content`, jt, {
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-}, Ea = class extends P {
-	constructor() {
-		super(...arguments), this.files = new Ta(this._client), this.fileBatches = new wa(this._client);
-	}
-	create(e, t) {
-		return this._client.post("/vector_stores", {
-			body: e,
-			...t,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, t?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-	retrieve(e, t) {
-		return this._client.get(F`/vector_stores/${e}`, {
-			...t,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, t?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-	update(e, t, n) {
-		return this._client.post(F`/vector_stores/${e}`, {
-			body: t,
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-	list(e = {}, t) {
-		return this._client.getAPIList("/vector_stores", A, {
-			query: e,
-			...t,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, t?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-	delete(e, t) {
-		return this._client.delete(F`/vector_stores/${e}`, {
-			...t,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, t?.headers]),
-			__security: { bearerAuth: !0 }
-		});
-	}
-	search(e, t, n) {
-		return this._client.getAPIList(F`/vector_stores/${e}/search`, jt, {
-			body: t,
-			method: "post",
-			...n,
-			headers: V([{ "OpenAI-Beta": "assistants=v2" }, n?.headers]),
-			__security: { bearerAuth: !0 }
+	/**
+	* Retrieve the parsed contents of a vector store file.
+	*/
+	content(fileID, params, options) {
+		const { vector_store_id } = params;
+		return this._client.getAPIList(path$2`/vector_stores/${vector_store_id}/files/${fileID}/content`, Page, {
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
 		});
 	}
 };
-Ea.Files = Ta, Ea.FileBatches = wa;
+//#endregion
+//#region node_modules/openai/resources/vector-stores/vector-stores.mjs
+var VectorStores = class extends APIResource {
+	constructor() {
+		super(...arguments);
+		this.files = new Files(this._client);
+		this.fileBatches = new FileBatches(this._client);
+	}
+	/**
+	* Create a vector store.
+	*/
+	create(body, options) {
+		return this._client.post("/vector_stores", {
+			body,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Retrieves a vector store.
+	*/
+	retrieve(vectorStoreID, options) {
+		return this._client.get(path$2`/vector_stores/${vectorStoreID}`, {
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Modifies a vector store.
+	*/
+	update(vectorStoreID, body, options) {
+		return this._client.post(path$2`/vector_stores/${vectorStoreID}`, {
+			body,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Returns a list of vector stores.
+	*/
+	list(query = {}, options) {
+		return this._client.getAPIList("/vector_stores", CursorPage, {
+			query,
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Delete a vector store.
+	*/
+	delete(vectorStoreID, options) {
+		return this._client.delete(path$2`/vector_stores/${vectorStoreID}`, {
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+	/**
+	* Search a vector store for relevant chunks based on a query and file attributes
+	* filter.
+	*/
+	search(vectorStoreID, body, options) {
+		return this._client.getAPIList(path$2`/vector_stores/${vectorStoreID}/search`, Page, {
+			body,
+			method: "post",
+			...options,
+			headers: buildHeaders([{ "OpenAI-Beta": "assistants=v2" }, options?.headers]),
+			__security: { bearerAuth: true }
+		});
+	}
+};
+VectorStores.Files = Files;
+VectorStores.FileBatches = FileBatches;
 //#endregion
 //#region node_modules/openai/resources/videos.mjs
-var Da = class extends P {
-	create(e, t) {
-		return this._client.post("/videos", N({
-			body: e,
-			...t,
-			__security: { bearerAuth: !0 }
+var Videos = class extends APIResource {
+	/**
+	* Create a new video generation job from a prompt and optional reference assets.
+	*/
+	create(body, options) {
+		return this._client.post("/videos", multipartFormRequestOptions({
+			body,
+			...options,
+			__security: { bearerAuth: true }
 		}, this._client));
 	}
-	retrieve(e, t) {
-		return this._client.get(F`/videos/${e}`, {
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* Fetch the latest metadata for a generated video.
+	*/
+	retrieve(videoID, options) {
+		return this._client.get(path$2`/videos/${videoID}`, {
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	list(e = {}, t) {
-		return this._client.getAPIList("/videos", j, {
-			query: e,
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* List recently generated videos for the current project.
+	*/
+	list(query = {}, options) {
+		return this._client.getAPIList("/videos", ConversationCursorPage, {
+			query,
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	delete(e, t) {
-		return this._client.delete(F`/videos/${e}`, {
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* Permanently delete a completed or failed video and its stored assets.
+	*/
+	delete(videoID, options) {
+		return this._client.delete(path$2`/videos/${videoID}`, {
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	createCharacter(e, t) {
-		return this._client.post("/videos/characters", N({
-			body: e,
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* Create a character from an uploaded video.
+	*/
+	createCharacter(body, options) {
+		return this._client.post("/videos/characters", multipartFormRequestOptions({
+			body,
+			...options,
+			__security: { bearerAuth: true }
 		}, this._client));
 	}
-	downloadContent(e, t = {}, n) {
-		return this._client.get(F`/videos/${e}/content`, {
-			query: t,
-			...n,
-			headers: V([{ Accept: "application/binary" }, n?.headers]),
-			__security: { bearerAuth: !0 },
-			__binaryResponse: !0
+	/**
+	* Download the generated video bytes or a derived preview asset.
+	*
+	* Streams the rendered video content for the specified video job.
+	*/
+	downloadContent(videoID, query = {}, options) {
+		return this._client.get(path$2`/videos/${videoID}/content`, {
+			query,
+			...options,
+			headers: buildHeaders([{ Accept: "application/binary" }, options?.headers]),
+			__security: { bearerAuth: true },
+			__binaryResponse: true
 		});
 	}
-	edit(e, t) {
-		return this._client.post("/videos/edits", N({
-			body: e,
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* Create a new video generation job by editing a source video or existing
+	* generated video.
+	*/
+	edit(body, options) {
+		return this._client.post("/videos/edits", multipartFormRequestOptions({
+			body,
+			...options,
+			__security: { bearerAuth: true }
 		}, this._client));
 	}
-	extend(e, t) {
-		return this._client.post("/videos/extensions", N({
-			body: e,
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* Create an extension of a completed video.
+	*/
+	extend(body, options) {
+		return this._client.post("/videos/extensions", multipartFormRequestOptions({
+			body,
+			...options,
+			__security: { bearerAuth: true }
 		}, this._client));
 	}
-	getCharacter(e, t) {
-		return this._client.get(F`/videos/characters/${e}`, {
-			...t,
-			__security: { bearerAuth: !0 }
+	/**
+	* Fetch a character.
+	*/
+	getCharacter(characterID, options) {
+		return this._client.get(path$2`/videos/characters/${characterID}`, {
+			...options,
+			__security: { bearerAuth: true }
 		});
 	}
-	remix(e, t, n) {
-		return this._client.post(F`/videos/${e}/remix`, zt({
-			body: t,
-			...n,
-			__security: { bearerAuth: !0 }
+	/**
+	* Create a remix of a completed video using a refreshed prompt.
+	*/
+	remix(videoID, body, options) {
+		return this._client.post(path$2`/videos/${videoID}/remix`, maybeMultipartFormRequestOptions({
+			body,
+			...options,
+			__security: { bearerAuth: true }
 		}, this._client));
 	}
-}, Oa, ka, Aa, ja = class extends P {
+};
+//#endregion
+//#region node_modules/openai/resources/webhooks/webhooks.mjs
+var _Webhooks_instances, _Webhooks_validateSecret, _Webhooks_getRequiredHeader;
+var Webhooks = class extends APIResource {
 	constructor() {
-		super(...arguments), Oa.add(this);
+		super(...arguments);
+		_Webhooks_instances.add(this);
 	}
-	async unwrap(e, t, n = this._client.webhookSecret, r = 300) {
-		return await this.verifySignature(e, t, n, r), JSON.parse(e);
+	/**
+	* Validates that the given payload was sent by OpenAI and parses the payload.
+	*/
+	async unwrap(payload, headers, secret = this._client.webhookSecret, tolerance = 300) {
+		await this.verifySignature(payload, headers, secret, tolerance);
+		return JSON.parse(payload);
 	}
-	async verifySignature(e, t, n = this._client.webhookSecret, r = 300) {
-		if (typeof crypto > "u" || typeof crypto.subtle.importKey != "function" || typeof crypto.subtle.verify != "function") throw Error("Webhook signature verification is only supported when the `crypto` global is defined");
-		_(this, Oa, "m", ka).call(this, n);
-		let i = V([t]).values, a = _(this, Oa, "m", Aa).call(this, i, "webhook-signature"), o = _(this, Oa, "m", Aa).call(this, i, "webhook-timestamp"), s = _(this, Oa, "m", Aa).call(this, i, "webhook-id"), c = parseInt(o, 10);
-		if (isNaN(c)) throw new fe("Invalid webhook timestamp format");
-		let l = Math.floor(Date.now() / 1e3);
-		if (l - c > r) throw new fe("Webhook timestamp is too old");
-		if (c > l + r) throw new fe("Webhook timestamp is too new");
-		let u = a.split(" ").map((e) => e.startsWith("v1,") ? e.substring(3) : e), d = n.startsWith("whsec_") ? Buffer.from(n.replace("whsec_", ""), "base64") : Buffer.from(n, "utf-8"), f = s ? `${s}.${o}.${e}` : `${o}.${e}`, p = await crypto.subtle.importKey("raw", d, {
+	/**
+	* Validates whether or not the webhook payload was sent by OpenAI.
+	*
+	* An error will be raised if the webhook payload was not sent by OpenAI.
+	*
+	* @param payload - The webhook payload
+	* @param headers - The webhook headers
+	* @param secret - The webhook secret (optional, will use client secret if not provided)
+	* @param tolerance - Maximum age of the webhook in seconds (default: 300 = 5 minutes)
+	*/
+	async verifySignature(payload, headers, secret = this._client.webhookSecret, tolerance = 300) {
+		if (typeof crypto === "undefined" || typeof crypto.subtle.importKey !== "function" || typeof crypto.subtle.verify !== "function") throw new Error("Webhook signature verification is only supported when the `crypto` global is defined");
+		__classPrivateFieldGet(this, _Webhooks_instances, "m", _Webhooks_validateSecret).call(this, secret);
+		const headersObj = buildHeaders([headers]).values;
+		const signatureHeader = __classPrivateFieldGet(this, _Webhooks_instances, "m", _Webhooks_getRequiredHeader).call(this, headersObj, "webhook-signature");
+		const timestamp = __classPrivateFieldGet(this, _Webhooks_instances, "m", _Webhooks_getRequiredHeader).call(this, headersObj, "webhook-timestamp");
+		const webhookId = __classPrivateFieldGet(this, _Webhooks_instances, "m", _Webhooks_getRequiredHeader).call(this, headersObj, "webhook-id");
+		const timestampSeconds = parseInt(timestamp, 10);
+		if (isNaN(timestampSeconds)) throw new InvalidWebhookSignatureError("Invalid webhook timestamp format");
+		const nowSeconds = Math.floor(Date.now() / 1e3);
+		if (nowSeconds - timestampSeconds > tolerance) throw new InvalidWebhookSignatureError("Webhook timestamp is too old");
+		if (timestampSeconds > nowSeconds + tolerance) throw new InvalidWebhookSignatureError("Webhook timestamp is too new");
+		const signatures = signatureHeader.split(" ").map((part) => part.startsWith("v1,") ? part.substring(3) : part);
+		const decodedSecret = secret.startsWith("whsec_") ? Buffer.from(secret.replace("whsec_", ""), "base64") : Buffer.from(secret, "utf-8");
+		const signedPayload = webhookId ? `${webhookId}.${timestamp}.${payload}` : `${timestamp}.${payload}`;
+		const key = await crypto.subtle.importKey("raw", decodedSecret, {
 			name: "HMAC",
 			hash: "SHA-256"
-		}, !1, ["verify"]);
-		for (let e of u) try {
-			let t = Buffer.from(e, "base64");
-			if (await crypto.subtle.verify("HMAC", p, t, new TextEncoder().encode(f))) return;
+		}, false, ["verify"]);
+		for (const signature of signatures) try {
+			const signatureBytes = Buffer.from(signature, "base64");
+			if (await crypto.subtle.verify("HMAC", key, signatureBytes, new TextEncoder().encode(signedPayload))) return;
 		} catch {
 			continue;
 		}
-		throw new fe("The given webhook signature does not match the expected signature");
+		throw new InvalidWebhookSignatureError("The given webhook signature does not match the expected signature");
 	}
 };
-Oa = /* @__PURE__ */ new WeakSet(), ka = function(e) {
-	if (typeof e != "string" || e.length === 0) throw Error("The webhook secret must either be set using the env var, OPENAI_WEBHOOK_SECRET, on the client class, OpenAI({ webhookSecret: '123' }), or passed to this function");
-}, Aa = function(e, t) {
-	if (!e) throw Error("Headers are required");
-	let n = e.get(t);
-	if (n == null) throw Error(`Missing required header: ${t}`);
-	return n;
+_Webhooks_instances = /* @__PURE__ */ new WeakSet(), _Webhooks_validateSecret = function _Webhooks_validateSecret(secret) {
+	if (typeof secret !== "string" || secret.length === 0) throw new Error(`The webhook secret must either be set using the env var, OPENAI_WEBHOOK_SECRET, on the client class, OpenAI({ webhookSecret: '123' }), or passed to this function`);
+}, _Webhooks_getRequiredHeader = function _Webhooks_getRequiredHeader(headers, name) {
+	if (!headers) throw new Error(`Headers are required`);
+	const value = headers.get(name);
+	if (value === null || value === void 0) throw new Error(`Missing required header: ${name}`);
+	return value;
 };
 //#endregion
 //#region node_modules/openai/client.mjs
-var Ma, Na, Pa, Fa, Ia = "workload-identity-auth", K = class {
-	constructor({ baseURL: e = $r("OPENAI_BASE_URL"), apiKey: t = $r("OPENAI_API_KEY") ?? null, adminAPIKey: n = $r("OPENAI_ADMIN_KEY") ?? null, organization: r = $r("OPENAI_ORG_ID") ?? null, project: i = $r("OPENAI_PROJECT_ID") ?? null, webhookSecret: a = $r("OPENAI_WEBHOOK_SECRET") ?? null, workloadIdentity: o, ...s } = {}) {
-		Ma.add(this), Pa.set(this, void 0), this.completions = new Ci(this), this.chat = new cr(this), this.embeddings = new ki(this), this.files = new Ni(this), this.images = new Wi(this), this.audio = new Vr(this), this.moderations = new Ki(this), this.models = new Gi(this), this.fineTuning = new Vi(this), this.graders = new Ui(this), this.vectorStores = new Ea(this), this.webhooks = new ja(this), this.beta = new Si(this), this.batches = new Hr(this), this.uploads = new Sa(this), this.admin = new Fr(this), this.responses = new ga(this), this.realtime = new Yi(this), this.conversations = new Oi(this), this.evals = new Mi(this), this.containers = new Ei(this), this.skills = new ba(this), this.videos = new Da(this);
-		let c = {
-			apiKey: t,
-			adminAPIKey: n,
-			organization: r,
-			project: i,
-			webhookSecret: a,
-			workloadIdentity: o,
-			...s,
-			baseURL: e || "https://api.openai.com/v1"
+var _OpenAI_instances, _a, _OpenAI_encoder, _OpenAI_baseURLOverridden;
+var WORKLOAD_IDENTITY_API_KEY_PLACEHOLDER = "workload-identity-auth";
+/**
+* API Client for interfacing with the OpenAI API.
+*/
+var OpenAI = class {
+	/**
+	* API Client for interfacing with the OpenAI API.
+	*
+	* @param {string | null | undefined} [opts.apiKey=process.env['OPENAI_API_KEY'] ?? null]
+	* @param {string | null | undefined} [opts.adminAPIKey=process.env['OPENAI_ADMIN_KEY'] ?? null]
+	* @param {string | null | undefined} [opts.organization=process.env['OPENAI_ORG_ID'] ?? null]
+	* @param {string | null | undefined} [opts.project=process.env['OPENAI_PROJECT_ID'] ?? null]
+	* @param {string | null | undefined} [opts.webhookSecret=process.env['OPENAI_WEBHOOK_SECRET'] ?? null]
+	* @param {string} [opts.baseURL=process.env['OPENAI_BASE_URL'] ?? https://api.openai.com/v1] - Override the default base URL for the API.
+	* @param {number} [opts.timeout=10 minutes] - The maximum amount of time (in milliseconds) the client will wait for a response before timing out.
+	* @param {MergedRequestInit} [opts.fetchOptions] - Additional `RequestInit` options to be passed to `fetch` calls.
+	* @param {Fetch} [opts.fetch] - Specify a custom `fetch` function implementation.
+	* @param {number} [opts.maxRetries=2] - The maximum number of times the client will retry a request.
+	* @param {HeadersLike} opts.defaultHeaders - Default headers to include with every request to the API.
+	* @param {Record<string, string | undefined>} opts.defaultQuery - Default query parameters to include with every request to the API.
+	* @param {boolean} [opts.dangerouslyAllowBrowser=false] - By default, client-side use of this library is not allowed, as it risks exposing your secret API credentials to attackers.
+	*/
+	constructor({ baseURL = readEnv("OPENAI_BASE_URL"), apiKey = readEnv("OPENAI_API_KEY") ?? null, adminAPIKey = readEnv("OPENAI_ADMIN_KEY") ?? null, organization = readEnv("OPENAI_ORG_ID") ?? null, project = readEnv("OPENAI_PROJECT_ID") ?? null, webhookSecret = readEnv("OPENAI_WEBHOOK_SECRET") ?? null, workloadIdentity, ...opts } = {}) {
+		_OpenAI_instances.add(this);
+		_OpenAI_encoder.set(this, void 0);
+		/**
+		* Given a prompt, the model will return one or more predicted completions, and can also return the probabilities of alternative tokens at each position.
+		*/
+		this.completions = new Completions(this);
+		this.chat = new Chat(this);
+		/**
+		* Get a vector representation of a given input that can be easily consumed by machine learning models and algorithms.
+		*/
+		this.embeddings = new Embeddings(this);
+		/**
+		* Files are used to upload documents that can be used with features like Assistants and Fine-tuning.
+		*/
+		this.files = new Files$1(this);
+		/**
+		* Given a prompt and/or an input image, the model will generate a new image.
+		*/
+		this.images = new Images(this);
+		this.audio = new Audio(this);
+		/**
+		* Given text and/or image inputs, classifies if those inputs are potentially harmful.
+		*/
+		this.moderations = new Moderations(this);
+		/**
+		* List and describe the various models available in the API.
+		*/
+		this.models = new Models(this);
+		this.fineTuning = new FineTuning(this);
+		this.graders = new Graders(this);
+		this.vectorStores = new VectorStores(this);
+		this.webhooks = new Webhooks(this);
+		this.beta = new Beta(this);
+		/**
+		* Create large batches of API requests to run asynchronously.
+		*/
+		this.batches = new Batches(this);
+		/**
+		* Use Uploads to upload large files in multiple parts.
+		*/
+		this.uploads = new Uploads(this);
+		this.admin = new Admin(this);
+		this.responses = new Responses(this);
+		this.realtime = new Realtime(this);
+		/**
+		* Manage conversations and conversation items.
+		*/
+		this.conversations = new Conversations(this);
+		/**
+		* Manage and run evals in the OpenAI platform.
+		*/
+		this.evals = new Evals(this);
+		this.containers = new Containers(this);
+		this.skills = new Skills(this);
+		this.videos = new Videos(this);
+		const options = {
+			apiKey,
+			adminAPIKey,
+			organization,
+			project,
+			webhookSecret,
+			workloadIdentity,
+			...opts,
+			baseURL: baseURL || `https://api.openai.com/v1`
 		};
-		if (t && o) throw new b("The `apiKey` and `workloadIdentity` options are mutually exclusive");
-		if (!t && !n && !o) throw new b("Missing credentials. Please pass an `apiKey`, `workloadIdentity`, `adminAPIKey`, or set the `OPENAI_API_KEY` or `OPENAI_ADMIN_KEY` environment variable.");
-		if (!c.dangerouslyAllowBrowser && Ee()) throw new b("It looks like you're running in a browser-like environment.\n\nThis is disabled by default, as it risks exposing your secret API credentials to attackers.\nIf you understand the risks and have appropriate mitigations in place,\nyou can set the `dangerouslyAllowBrowser` option to `true`, e.g.,\n\nnew OpenAI({ apiKey, dangerouslyAllowBrowser: true });\n\nhttps://help.openai.com/en/articles/5112595-best-practices-for-api-key-safety\n");
-		this.baseURL = c.baseURL, this.timeout = c.timeout ?? Na.DEFAULT_TIMEOUT, this.logger = c.logger ?? console;
-		let l = "warn";
-		this.logLevel = l, this.logLevel = ft(c.logLevel, "ClientOptions.logLevel", this) ?? ft($r("OPENAI_LOG"), "process.env['OPENAI_LOG']", this) ?? l, this.fetchOptions = c.fetchOptions, this.maxRetries = c.maxRetries ?? 2, this.fetch = c.fetch ?? Pe(), g(this, Pa, ze, "f");
-		let u = $r("OPENAI_CUSTOM_HEADERS");
-		if (u) {
-			let e = {};
-			for (let t of u.split("\n")) {
-				let n = t.indexOf(":");
-				n >= 0 && (e[t.substring(0, n).trim()] = t.substring(n + 1).trim());
+		if (apiKey && workloadIdentity) throw new OpenAIError("The `apiKey` and `workloadIdentity` options are mutually exclusive");
+		if (!apiKey && !adminAPIKey && !workloadIdentity) throw new OpenAIError("Missing credentials. Please pass an `apiKey`, `workloadIdentity`, `adminAPIKey`, or set the `OPENAI_API_KEY` or `OPENAI_ADMIN_KEY` environment variable.");
+		if (!options.dangerouslyAllowBrowser && isRunningInBrowser()) throw new OpenAIError("It looks like you're running in a browser-like environment.\n\nThis is disabled by default, as it risks exposing your secret API credentials to attackers.\nIf you understand the risks and have appropriate mitigations in place,\nyou can set the `dangerouslyAllowBrowser` option to `true`, e.g.,\n\nnew OpenAI({ apiKey, dangerouslyAllowBrowser: true });\n\nhttps://help.openai.com/en/articles/5112595-best-practices-for-api-key-safety\n");
+		this.baseURL = options.baseURL;
+		this.timeout = options.timeout ?? _a.DEFAULT_TIMEOUT;
+		this.logger = options.logger ?? console;
+		const defaultLogLevel = "warn";
+		this.logLevel = defaultLogLevel;
+		this.logLevel = parseLogLevel(options.logLevel, "ClientOptions.logLevel", this) ?? parseLogLevel(readEnv("OPENAI_LOG"), "process.env['OPENAI_LOG']", this) ?? defaultLogLevel;
+		this.fetchOptions = options.fetchOptions;
+		this.maxRetries = options.maxRetries ?? 2;
+		this.fetch = options.fetch ?? getDefaultFetch();
+		__classPrivateFieldSet(this, _OpenAI_encoder, FallbackEncoder, "f");
+		const customHeadersEnv = readEnv("OPENAI_CUSTOM_HEADERS");
+		if (customHeadersEnv) {
+			const parsed = {};
+			for (const line of customHeadersEnv.split("\n")) {
+				const colon = line.indexOf(":");
+				if (colon >= 0) parsed[line.substring(0, colon).trim()] = line.substring(colon + 1).trim();
 			}
-			c.defaultHeaders = V([e, c.defaultHeaders]);
+			options.defaultHeaders = buildHeaders([parsed, options.defaultHeaders]);
 		}
-		this._options = c, o && (this._workloadIdentityAuth = new Pt(o, this.fetch)), this.apiKey = typeof t == "string" ? t : null, this.adminAPIKey = n, this.organization = r, this.project = i, this.webhookSecret = a;
+		this._options = options;
+		if (workloadIdentity) this._workloadIdentityAuth = new WorkloadIdentityAuth(workloadIdentity, this.fetch);
+		this.apiKey = typeof apiKey === "string" ? apiKey : null;
+		this.adminAPIKey = adminAPIKey;
+		this.organization = organization;
+		this.project = project;
+		this.webhookSecret = webhookSecret;
 	}
-	withOptions(e) {
+	/**
+	* Create a new client instance re-using the same options given to the current client with optional overriding.
+	*/
+	withOptions(options) {
 		return new this.constructor({
 			...this._options,
 			baseURL: this.baseURL,
@@ -5001,346 +8938,493 @@ var Ma, Na, Pa, Fa, Ia = "workload-identity-auth", K = class {
 			organization: this.organization,
 			project: this.project,
 			webhookSecret: this.webhookSecret,
-			...e
+			...options
 		});
 	}
 	defaultQuery() {
 		return this._options.defaultQuery;
 	}
-	validateHeaders({ values: e, nulls: t }, n = {
-		bearerAuth: !0,
-		adminAPIKeyAuth: !0
+	validateHeaders({ values, nulls }, schemes = {
+		bearerAuth: true,
+		adminAPIKeyAuth: true
 	}) {
-		if (!(e.get("authorization") || e.get("api-key")) && !(t.has("authorization") || t.has("api-key")) && !(this._workloadIdentityAuth && n.bearerAuth)) throw Error("Could not resolve authentication method. Expected either apiKey or adminAPIKey to be set. Or for one of the \"Authorization\" or \"api-key\" headers to be explicitly omitted");
+		if (values.get("authorization") || values.get("api-key")) return;
+		if (nulls.has("authorization") || nulls.has("api-key")) return;
+		if (this._workloadIdentityAuth && schemes.bearerAuth) return;
+		throw new Error("Could not resolve authentication method. Expected either apiKey or adminAPIKey to be set. Or for one of the \"Authorization\" or \"api-key\" headers to be explicitly omitted");
 	}
-	async authHeaders(e, t = {
-		bearerAuth: !0,
-		adminAPIKeyAuth: !0
+	async authHeaders(opts, schemes = {
+		bearerAuth: true,
+		adminAPIKeyAuth: true
 	}) {
-		return V([t.bearerAuth ? await this.bearerAuth(e) : null, t.adminAPIKeyAuth ? await this.adminAPIKeyAuth(e) : null]);
+		return buildHeaders([schemes.bearerAuth ? await this.bearerAuth(opts) : null, schemes.adminAPIKeyAuth ? await this.adminAPIKeyAuth(opts) : null]);
 	}
-	async bearerAuth(e) {
-		if (this._workloadIdentityAuth) return V([{ Authorization: `Bearer ${await this._workloadIdentityAuth.getToken()}` }]);
-		if (this.apiKey != null) return V([{ Authorization: `Bearer ${this.apiKey}` }]);
+	async bearerAuth(opts) {
+		if (this._workloadIdentityAuth) return buildHeaders([{ Authorization: `Bearer ${await this._workloadIdentityAuth.getToken()}` }]);
+		if (this.apiKey == null) return;
+		return buildHeaders([{ Authorization: `Bearer ${this.apiKey}` }]);
 	}
-	async adminAPIKeyAuth(e) {
-		if (this.adminAPIKey != null) return V([{ Authorization: `Bearer ${this.adminAPIKey}` }]);
+	async adminAPIKeyAuth(opts) {
+		if (this.adminAPIKey == null) return;
+		return buildHeaders([{ Authorization: `Bearer ${this.adminAPIKey}` }]);
 	}
-	stringifyQuery(e) {
-		return nt(e);
+	stringifyQuery(query) {
+		return stringifyQuery(query);
 	}
 	getUserAgent() {
-		return `${this.constructor.name}/JS ${Te}`;
+		return `${this.constructor.name}/JS ${VERSION}`;
 	}
 	defaultIdempotencyKey() {
-		return `stainless-node-retry-${v()}`;
+		return `stainless-node-retry-${uuid4()}`;
 	}
-	makeStatusError(e, t, n, r) {
-		return x.generate(e, t, n, r);
+	makeStatusError(status, error, message, headers) {
+		return APIError.generate(status, error, message, headers);
 	}
 	async _callApiKey() {
-		let e = this._options.apiKey;
-		if (typeof e != "function") return !1;
-		let t;
+		const apiKey = this._options.apiKey;
+		if (typeof apiKey !== "function") return false;
+		let token;
 		try {
-			t = await e();
-		} catch (e) {
-			throw e instanceof b ? e : new b(`Failed to get token from 'apiKey' function: ${e.message}`, { cause: e });
+			token = await apiKey();
+		} catch (err) {
+			if (err instanceof OpenAIError) throw err;
+			throw new OpenAIError(`Failed to get token from 'apiKey' function: ${err.message}`, { cause: err });
 		}
-		if (typeof t != "string" || !t) throw new b(`Expected 'apiKey' function argument to return a string but it returned ${t}`);
-		return this.apiKey = t, !0;
+		if (typeof token !== "string" || !token) throw new OpenAIError(`Expected 'apiKey' function argument to return a string but it returned ${token}`);
+		this.apiKey = token;
+		return true;
 	}
-	buildURL(e, t, n) {
-		let r = !_(this, Ma, "m", Fa).call(this) && n || this.baseURL, i = ge(e) ? new URL(e) : new URL(r + (r.endsWith("/") && e.startsWith("/") ? e.slice(1) : e)), a = this.defaultQuery(), o = Object.fromEntries(i.searchParams);
-		return (!ye(a) || !ye(o)) && (t = {
-			...o,
-			...a,
-			...t
-		}), typeof t == "object" && t && !Array.isArray(t) && (i.search = this.stringifyQuery(t)), i.toString();
+	buildURL(path, query, defaultBaseURL) {
+		const baseURL = !__classPrivateFieldGet(this, _OpenAI_instances, "m", _OpenAI_baseURLOverridden).call(this) && defaultBaseURL || this.baseURL;
+		const url = isAbsoluteURL(path) ? new URL(path) : new URL(baseURL + (baseURL.endsWith("/") && path.startsWith("/") ? path.slice(1) : path));
+		const defaultQuery = this.defaultQuery();
+		const pathQuery = Object.fromEntries(url.searchParams);
+		if (!isEmptyObj(defaultQuery) || !isEmptyObj(pathQuery)) query = {
+			...pathQuery,
+			...defaultQuery,
+			...query
+		};
+		if (typeof query === "object" && query && !Array.isArray(query)) url.search = this.stringifyQuery(query);
+		return url.toString();
 	}
-	async prepareOptions(e) {
-		(e.__security ?? { bearerAuth: !0 }).bearerAuth && await this._callApiKey();
+	/**
+	* Used as a callback for mutating the given `FinalRequestOptions` object.
+	*/
+	async prepareOptions(options) {
+		if ((options.__security ?? { bearerAuth: true }).bearerAuth) await this._callApiKey();
 	}
-	async prepareRequest(e, { url: t, options: n }) {}
-	get(e, t) {
-		return this.methodRequest("get", e, t);
+	/**
+	* Used as a callback for mutating the given `RequestInit` object.
+	*
+	* This is useful for cases where you want to add certain headers based off of
+	* the request properties, e.g. `method` or `url`.
+	*/
+	async prepareRequest(request, { url, options }) {}
+	get(path, opts) {
+		return this.methodRequest("get", path, opts);
 	}
-	post(e, t) {
-		return this.methodRequest("post", e, t);
+	post(path, opts) {
+		return this.methodRequest("post", path, opts);
 	}
-	patch(e, t) {
-		return this.methodRequest("patch", e, t);
+	patch(path, opts) {
+		return this.methodRequest("patch", path, opts);
 	}
-	put(e, t) {
-		return this.methodRequest("put", e, t);
+	put(path, opts) {
+		return this.methodRequest("put", path, opts);
 	}
-	delete(e, t) {
-		return this.methodRequest("delete", e, t);
+	delete(path, opts) {
+		return this.methodRequest("delete", path, opts);
 	}
-	methodRequest(e, t, n) {
-		return this.request(Promise.resolve(n).then((n) => ({
-			method: e,
-			path: t,
-			...n
-		})));
+	methodRequest(method, path, opts) {
+		return this.request(Promise.resolve(opts).then((opts) => {
+			return {
+				method,
+				path,
+				...opts
+			};
+		}));
 	}
-	request(e, t = null) {
-		return new Dt(this, this.makeRequest(e, t, void 0));
+	request(options, remainingRetries = null) {
+		return new APIPromise(this, this.makeRequest(options, remainingRetries, void 0));
 	}
-	async makeRequest(e, t, n) {
-		let r = await e, i = r.maxRetries ?? this.maxRetries;
-		t ??= i, await this.prepareOptions(r);
-		let { req: a, url: o, timeout: s } = await this.buildRequest(r, { retryCount: i - t });
-		await this.prepareRequest(a, {
-			url: o,
-			options: r
+	async makeRequest(optionsInput, retriesRemaining, retryOfRequestLogID) {
+		const options = await optionsInput;
+		const maxRetries = options.maxRetries ?? this.maxRetries;
+		if (retriesRemaining == null) retriesRemaining = maxRetries;
+		await this.prepareOptions(options);
+		const { req, url, timeout } = await this.buildRequest(options, { retryCount: maxRetries - retriesRemaining });
+		await this.prepareRequest(req, {
+			url,
+			options
 		});
-		let c = "log_" + (Math.random() * (1 << 24) | 0).toString(16).padStart(6, "0"), l = n === void 0 ? "" : `, retryOf: ${n}`, u = Date.now();
-		if (k(this).debug(`[${c}] sending request`, _t({
-			retryOfRequestLogID: n,
-			method: r.method,
-			url: o,
-			options: r,
-			headers: a.headers
-		})), r.signal?.aborted) throw new S();
-		let d = r.__security ?? { bearerAuth: !0 }, f = new AbortController(), p = await this.fetchWithAuth(o, a, s, f, d).catch(ee), m = Date.now();
-		if (p instanceof globalThis.Error) {
-			let e = `retrying, ${t} attempts remaining`;
-			if (r.signal?.aborted) throw new S();
-			let i = y(p) || /timed? ?out/i.test(String(p) + ("cause" in p ? String(p.cause) : ""));
-			if (t) return k(this).info(`[${c}] connection ${i ? "timed out" : "failed"} - ${e}`), k(this).debug(`[${c}] connection ${i ? "timed out" : "failed"} (${e})`, _t({
-				retryOfRequestLogID: n,
-				url: o,
-				durationMs: m - u,
-				message: p.message
-			})), this.retryRequest(r, t, n ?? c);
-			throw k(this).info(`[${c}] connection ${i ? "timed out" : "failed"} - error; no more retries left`), k(this).debug(`[${c}] connection ${i ? "timed out" : "failed"} (error; no more retries left)`, _t({
-				retryOfRequestLogID: n,
-				url: o,
-				durationMs: m - u,
-				message: p.message
-			})), p instanceof pe || p instanceof me ? p : i ? new te() : new C({
-				message: La(p),
-				cause: p
+		/** Not an API request ID, just for correlating local log entries. */
+		const requestLogID = "log_" + (Math.random() * (1 << 24) | 0).toString(16).padStart(6, "0");
+		const retryLogStr = retryOfRequestLogID === void 0 ? "" : `, retryOf: ${retryOfRequestLogID}`;
+		const startTime = Date.now();
+		loggerFor(this).debug(`[${requestLogID}] sending request`, formatRequestDetails({
+			retryOfRequestLogID,
+			method: options.method,
+			url,
+			options,
+			headers: req.headers
+		}));
+		if (options.signal?.aborted) throw new APIUserAbortError();
+		const security = options.__security ?? { bearerAuth: true };
+		const controller = new AbortController();
+		const response = await this.fetchWithAuth(url, req, timeout, controller, security).catch(castToError);
+		const headersTime = Date.now();
+		if (response instanceof globalThis.Error) {
+			const retryMessage = `retrying, ${retriesRemaining} attempts remaining`;
+			if (options.signal?.aborted) throw new APIUserAbortError();
+			const isTimeout = isAbortError(response) || /timed? ?out/i.test(String(response) + ("cause" in response ? String(response.cause) : ""));
+			if (retriesRemaining) {
+				loggerFor(this).info(`[${requestLogID}] connection ${isTimeout ? "timed out" : "failed"} - ${retryMessage}`);
+				loggerFor(this).debug(`[${requestLogID}] connection ${isTimeout ? "timed out" : "failed"} (${retryMessage})`, formatRequestDetails({
+					retryOfRequestLogID,
+					url,
+					durationMs: headersTime - startTime,
+					message: response.message
+				}));
+				return this.retryRequest(options, retriesRemaining, retryOfRequestLogID ?? requestLogID);
+			}
+			loggerFor(this).info(`[${requestLogID}] connection ${isTimeout ? "timed out" : "failed"} - error; no more retries left`);
+			loggerFor(this).debug(`[${requestLogID}] connection ${isTimeout ? "timed out" : "failed"} (error; no more retries left)`, formatRequestDetails({
+				retryOfRequestLogID,
+				url,
+				durationMs: headersTime - startTime,
+				message: response.message
+			}));
+			if (response instanceof OAuthError || response instanceof SubjectTokenProviderError) throw response;
+			if (isTimeout) throw new APIConnectionTimeoutError();
+			throw new APIConnectionError({
+				message: getConnectionErrorMessage(response),
+				cause: response
 			});
 		}
-		let h = `[${c}${l}${[...p.headers.entries()].filter(([e]) => e === "x-request-id").map(([e, t]) => ", " + e + ": " + JSON.stringify(t)).join("")}] ${a.method} ${o} ${p.ok ? "succeeded" : "failed"} with status ${p.status} in ${m - u}ms`;
-		if (!p.ok) {
-			if (p.status === 401 && this._workloadIdentityAuth && d.bearerAuth && !r.__metadata?.hasStreamingBody && !r.__metadata?.workloadIdentityTokenRefreshed) return await Re(p.body), this._workloadIdentityAuth.invalidateToken(), this.makeRequest({
-				...r,
-				__metadata: {
-					...r.__metadata,
-					workloadIdentityTokenRefreshed: !0
-				}
-			}, t, n ?? c);
-			let e = await this.shouldRetry(p);
-			if (t && e) {
-				let e = `retrying, ${t} attempts remaining`;
-				return await Re(p.body), k(this).info(`${h} - ${e}`), k(this).debug(`[${c}] response error (${e})`, _t({
-					retryOfRequestLogID: n,
-					url: p.url,
-					status: p.status,
-					headers: p.headers,
-					durationMs: m - u
-				})), this.retryRequest(r, t, n ?? c, p.headers);
+		const responseInfo = `[${requestLogID}${retryLogStr}${[...response.headers.entries()].filter(([name]) => name === "x-request-id").map(([name, value]) => ", " + name + ": " + JSON.stringify(value)).join("")}] ${req.method} ${url} ${response.ok ? "succeeded" : "failed"} with status ${response.status} in ${headersTime - startTime}ms`;
+		if (!response.ok) {
+			if (response.status === 401 && this._workloadIdentityAuth && security.bearerAuth && !options.__metadata?.["hasStreamingBody"] && !options.__metadata?.["workloadIdentityTokenRefreshed"]) {
+				await CancelReadableStream(response.body);
+				this._workloadIdentityAuth.invalidateToken();
+				return this.makeRequest({
+					...options,
+					__metadata: {
+						...options.__metadata,
+						workloadIdentityTokenRefreshed: true
+					}
+				}, retriesRemaining, retryOfRequestLogID ?? requestLogID);
 			}
-			let i = e ? "error; no more retries left" : "error; not retryable";
-			k(this).info(`${h} - ${i}`);
-			let a = await p.text().catch((e) => ee(e).message), o = Ce(a), s = o ? void 0 : a;
-			throw k(this).debug(`[${c}] response error (${i})`, _t({
-				retryOfRequestLogID: n,
-				url: p.url,
-				status: p.status,
-				headers: p.headers,
-				message: s,
-				durationMs: Date.now() - u
-			})), this.makeStatusError(p.status, o, s, p.headers);
+			const shouldRetry = await this.shouldRetry(response);
+			if (retriesRemaining && shouldRetry) {
+				const retryMessage = `retrying, ${retriesRemaining} attempts remaining`;
+				await CancelReadableStream(response.body);
+				loggerFor(this).info(`${responseInfo} - ${retryMessage}`);
+				loggerFor(this).debug(`[${requestLogID}] response error (${retryMessage})`, formatRequestDetails({
+					retryOfRequestLogID,
+					url: response.url,
+					status: response.status,
+					headers: response.headers,
+					durationMs: headersTime - startTime
+				}));
+				return this.retryRequest(options, retriesRemaining, retryOfRequestLogID ?? requestLogID, response.headers);
+			}
+			const retryMessage = shouldRetry ? `error; no more retries left` : `error; not retryable`;
+			loggerFor(this).info(`${responseInfo} - ${retryMessage}`);
+			const errText = await response.text().catch((err) => castToError(err).message);
+			const errJSON = safeJSON(errText);
+			const errMessage = errJSON ? void 0 : errText;
+			loggerFor(this).debug(`[${requestLogID}] response error (${retryMessage})`, formatRequestDetails({
+				retryOfRequestLogID,
+				url: response.url,
+				status: response.status,
+				headers: response.headers,
+				message: errMessage,
+				durationMs: Date.now() - startTime
+			}));
+			throw this.makeStatusError(response.status, errJSON, errMessage, response.headers);
 		}
-		return k(this).info(h), k(this).debug(`[${c}] response start`, _t({
-			retryOfRequestLogID: n,
-			url: p.url,
-			status: p.status,
-			headers: p.headers,
-			durationMs: m - u
-		})), {
-			response: p,
-			options: r,
-			controller: f,
-			requestLogID: c,
-			retryOfRequestLogID: n,
-			startTime: u
+		loggerFor(this).info(responseInfo);
+		loggerFor(this).debug(`[${requestLogID}] response start`, formatRequestDetails({
+			retryOfRequestLogID,
+			url: response.url,
+			status: response.status,
+			headers: response.headers,
+			durationMs: headersTime - startTime
+		}));
+		return {
+			response,
+			options,
+			controller,
+			requestLogID,
+			retryOfRequestLogID,
+			startTime
 		};
 	}
-	getAPIList(e, t, n) {
-		return this.requestAPIList(t, n && "then" in n ? n.then((t) => ({
+	getAPIList(path, Page, opts) {
+		return this.requestAPIList(Page, opts && "then" in opts ? opts.then((opts) => ({
 			method: "get",
-			path: e,
-			...t
+			path,
+			...opts
 		})) : {
 			method: "get",
-			path: e,
-			...n
+			path,
+			...opts
 		});
 	}
-	requestAPIList(e, t) {
-		let n = this.makeRequest(t, null, void 0);
-		return new At(this, n, e);
+	requestAPIList(Page, options) {
+		const request = this.makeRequest(options, null, void 0);
+		return new PagePromise(this, request, Page);
 	}
-	async fetchWithAuth(e, t, n, r, i = {
-		bearerAuth: !0,
-		adminAPIKeyAuth: !0
+	async fetchWithAuth(url, init, timeout, controller, schemes = {
+		bearerAuth: true,
+		adminAPIKeyAuth: true
 	}) {
-		if (this._workloadIdentityAuth && i.bearerAuth) {
-			let e = t.headers, n = e.get("Authorization");
-			if (!n || n === `Bearer ${Ia}`) {
-				let t = await this._workloadIdentityAuth.getToken();
-				e.set("Authorization", `Bearer ${t}`);
+		if (this._workloadIdentityAuth && schemes.bearerAuth) {
+			const headers = init.headers;
+			const authHeader = headers.get("Authorization");
+			if (!authHeader || authHeader === `Bearer ${WORKLOAD_IDENTITY_API_KEY_PLACEHOLDER}`) {
+				const token = await this._workloadIdentityAuth.getToken();
+				headers.set("Authorization", `Bearer ${token}`);
 			}
 		}
-		return await this.fetchWithTimeout(e, t, n, r);
+		return await this.fetchWithTimeout(url, init, timeout, controller);
 	}
-	async fetchWithTimeout(e, t, n, r) {
-		let { signal: i, method: a, ...o } = t || {}, s = this._makeAbort(r);
-		i && i.addEventListener("abort", s, { once: !0 });
-		let c = setTimeout(s, n), l = globalThis.ReadableStream && o.body instanceof globalThis.ReadableStream || typeof o.body == "object" && o.body !== null && Symbol.asyncIterator in o.body, u = {
-			signal: r.signal,
-			...l ? { duplex: "half" } : {},
+	async fetchWithTimeout(url, init, ms, controller) {
+		const { signal, method, ...options } = init || {};
+		const abort = this._makeAbort(controller);
+		if (signal) signal.addEventListener("abort", abort, { once: true });
+		const timeout = setTimeout(abort, ms);
+		const isReadableBody = globalThis.ReadableStream && options.body instanceof globalThis.ReadableStream || typeof options.body === "object" && options.body !== null && Symbol.asyncIterator in options.body;
+		const fetchOptions = {
+			signal: controller.signal,
+			...isReadableBody ? { duplex: "half" } : {},
 			method: "GET",
-			...o
+			...options
 		};
-		a && (u.method = a.toUpperCase());
+		if (method) fetchOptions.method = method.toUpperCase();
 		try {
-			return await this.fetch.call(void 0, e, u);
+			return await this.fetch.call(void 0, url, fetchOptions);
 		} finally {
-			clearTimeout(c);
+			clearTimeout(timeout);
 		}
 	}
-	async shouldRetry(e) {
-		let t = e.headers.get("x-should-retry");
-		return t === "true" ? !0 : t === "false" ? !1 : e.status === 408 || e.status === 409 || e.status === 429 || e.status >= 500;
+	async shouldRetry(response) {
+		const shouldRetryHeader = response.headers.get("x-should-retry");
+		if (shouldRetryHeader === "true") return true;
+		if (shouldRetryHeader === "false") return false;
+		if (response.status === 408) return true;
+		if (response.status === 409) return true;
+		if (response.status === 429) return true;
+		if (response.status >= 500) return true;
+		return false;
 	}
-	async retryRequest(e, t, n, r) {
-		let i, a = r?.get("retry-after-ms");
-		if (a) {
-			let e = parseFloat(a);
-			Number.isNaN(e) || (i = e);
+	async retryRequest(options, retriesRemaining, requestLogID, responseHeaders) {
+		let timeoutMillis;
+		const retryAfterMillisHeader = responseHeaders?.get("retry-after-ms");
+		if (retryAfterMillisHeader) {
+			const timeoutMs = parseFloat(retryAfterMillisHeader);
+			if (!Number.isNaN(timeoutMs)) timeoutMillis = timeoutMs;
 		}
-		let o = r?.get("retry-after");
-		if (o && !i) {
-			let e = parseFloat(o);
-			i = Number.isNaN(e) ? Date.parse(o) - Date.now() : e * 1e3;
+		const retryAfterHeader = responseHeaders?.get("retry-after");
+		if (retryAfterHeader && !timeoutMillis) {
+			const timeoutSeconds = parseFloat(retryAfterHeader);
+			if (!Number.isNaN(timeoutSeconds)) timeoutMillis = timeoutSeconds * 1e3;
+			else timeoutMillis = Date.parse(retryAfterHeader) - Date.now();
 		}
-		if (i === void 0) {
-			let n = e.maxRetries ?? this.maxRetries;
-			i = this.calculateDefaultRetryTimeoutMillis(t, n);
+		if (timeoutMillis === void 0) {
+			const maxRetries = options.maxRetries ?? this.maxRetries;
+			timeoutMillis = this.calculateDefaultRetryTimeoutMillis(retriesRemaining, maxRetries);
 		}
-		return await we(i), this.makeRequest(e, t - 1, n);
+		await sleep(timeoutMillis);
+		return this.makeRequest(options, retriesRemaining - 1, requestLogID);
 	}
-	calculateDefaultRetryTimeoutMillis(e, t) {
-		let n = t - e;
-		return Math.min(.5 * 2 ** n, 8) * (1 - Math.random() * .25) * 1e3;
+	calculateDefaultRetryTimeoutMillis(retriesRemaining, maxRetries) {
+		const initialRetryDelay = .5;
+		const maxRetryDelay = 8;
+		const numRetries = maxRetries - retriesRemaining;
+		return Math.min(initialRetryDelay * Math.pow(2, numRetries), maxRetryDelay) * (1 - Math.random() * .25) * 1e3;
 	}
-	async buildRequest(e, { retryCount: t = 0 } = {}) {
-		let n = { ...e }, { method: r, path: i, query: a, defaultBaseURL: o } = n, s = this.buildURL(i, a, o);
-		"timeout" in n && Se("timeout", n.timeout), n.timeout = n.timeout ?? this.timeout;
-		let { bodyHeaders: c, body: l, isStreamingBody: u } = this.buildBody({ options: n });
-		return u && (e.__metadata = {
-			...e.__metadata,
-			hasStreamingBody: !0
-		}), {
+	async buildRequest(inputOptions, { retryCount = 0 } = {}) {
+		const options = { ...inputOptions };
+		const { method, path, query, defaultBaseURL } = options;
+		const url = this.buildURL(path, query, defaultBaseURL);
+		if ("timeout" in options) validatePositiveInteger("timeout", options.timeout);
+		options.timeout = options.timeout ?? this.timeout;
+		const { bodyHeaders, body, isStreamingBody } = this.buildBody({ options });
+		if (isStreamingBody) inputOptions.__metadata = {
+			...inputOptions.__metadata,
+			hasStreamingBody: true
+		};
+		return {
 			req: {
-				method: r,
+				method,
 				headers: await this.buildHeaders({
-					options: e,
-					method: r,
-					bodyHeaders: c,
-					retryCount: t
+					options: inputOptions,
+					method,
+					bodyHeaders,
+					retryCount
 				}),
-				...n.signal && { signal: n.signal },
-				...globalThis.ReadableStream && l instanceof globalThis.ReadableStream && { duplex: "half" },
-				...l && { body: l },
+				...options.signal && { signal: options.signal },
+				...globalThis.ReadableStream && body instanceof globalThis.ReadableStream && { duplex: "half" },
+				...body && { body },
 				...this.fetchOptions ?? {},
-				...n.fetchOptions ?? {}
+				...options.fetchOptions ?? {}
 			},
-			url: s,
-			timeout: n.timeout
+			url,
+			timeout: options.timeout
 		};
 	}
-	async buildHeaders({ options: e, method: t, bodyHeaders: n, retryCount: r }) {
-		let i = {};
-		this.idempotencyHeader && t !== "get" && (e.idempotencyKey ||= this.defaultIdempotencyKey(), i[this.idempotencyHeader] = e.idempotencyKey);
-		let a = V([
-			i,
+	async buildHeaders({ options, method, bodyHeaders, retryCount }) {
+		let idempotencyHeaders = {};
+		if (this.idempotencyHeader && method !== "get") {
+			if (!options.idempotencyKey) options.idempotencyKey = this.defaultIdempotencyKey();
+			idempotencyHeaders[this.idempotencyHeader] = options.idempotencyKey;
+		}
+		const headers = buildHeaders([
+			idempotencyHeaders,
 			{
 				Accept: "application/json",
 				"User-Agent": this.getUserAgent(),
-				"X-Stainless-Retry-Count": String(r),
-				...e.timeout ? { "X-Stainless-Timeout": String(Math.trunc(e.timeout / 1e3)) } : {},
-				...Ne(),
+				"X-Stainless-Retry-Count": String(retryCount),
+				...options.timeout ? { "X-Stainless-Timeout": String(Math.trunc(options.timeout / 1e3)) } : {},
+				...getPlatformHeaders(),
 				"OpenAI-Organization": this.organization,
 				"OpenAI-Project": this.project
 			},
-			await this.authHeaders(e, e.__security ?? { bearerAuth: !0 }),
+			await this.authHeaders(options, options.__security ?? { bearerAuth: true }),
 			this._options.defaultHeaders,
-			n,
-			e.headers
+			bodyHeaders,
+			options.headers
 		]);
-		return this.validateHeaders(a, e.__security ?? { bearerAuth: !0 }), a.values;
+		this.validateHeaders(headers, options.__security ?? { bearerAuth: true });
+		return headers.values;
 	}
-	_makeAbort(e) {
-		return () => e.abort();
+	_makeAbort(controller) {
+		return () => controller.abort();
 	}
-	buildBody({ options: { body: e, headers: t } }) {
-		if (!e) return {
+	buildBody({ options: { body, headers: rawHeaders } }) {
+		if (!body) return {
 			bodyHeaders: void 0,
 			body: void 0,
-			isStreamingBody: !1
+			isStreamingBody: false
 		};
-		let n = V([t]), r = globalThis.ReadableStream !== void 0 && e instanceof globalThis.ReadableStream, i = !r && (typeof e == "string" || e instanceof ArrayBuffer || ArrayBuffer.isView(e) || globalThis.Blob !== void 0 && e instanceof globalThis.Blob || e instanceof URLSearchParams || e instanceof FormData);
-		return ArrayBuffer.isView(e) || e instanceof ArrayBuffer || e instanceof DataView || typeof e == "string" && n.values.has("content-type") || globalThis.Blob && e instanceof globalThis.Blob || e instanceof FormData || e instanceof URLSearchParams || r ? {
+		const headers = buildHeaders([rawHeaders]);
+		const isReadableStream = typeof globalThis.ReadableStream !== "undefined" && body instanceof globalThis.ReadableStream;
+		const isRetryableBody = !isReadableStream && (typeof body === "string" || body instanceof ArrayBuffer || ArrayBuffer.isView(body) || typeof globalThis.Blob !== "undefined" && body instanceof globalThis.Blob || body instanceof URLSearchParams || body instanceof FormData);
+		if (ArrayBuffer.isView(body) || body instanceof ArrayBuffer || body instanceof DataView || typeof body === "string" && headers.values.has("content-type") || globalThis.Blob && body instanceof globalThis.Blob || body instanceof FormData || body instanceof URLSearchParams || isReadableStream) return {
 			bodyHeaders: void 0,
-			body: e,
-			isStreamingBody: !i
-		} : typeof e == "object" && (Symbol.asyncIterator in e || Symbol.iterator in e && "next" in e && typeof e.next == "function") ? {
+			body,
+			isStreamingBody: !isRetryableBody
+		};
+		else if (typeof body === "object" && (Symbol.asyncIterator in body || Symbol.iterator in body && "next" in body && typeof body.next === "function")) return {
 			bodyHeaders: void 0,
-			body: Ie(e),
-			isStreamingBody: !0
-		} : typeof e == "object" && n.values.get("content-type") === "application/x-www-form-urlencoded" ? {
+			body: ReadableStreamFrom(body),
+			isStreamingBody: true
+		};
+		else if (typeof body === "object" && headers.values.get("content-type") === "application/x-www-form-urlencoded") return {
 			bodyHeaders: { "content-type": "application/x-www-form-urlencoded" },
-			body: this.stringifyQuery(e),
-			isStreamingBody: !1
-		} : {
-			..._(this, Pa, "f").call(this, {
-				body: e,
-				headers: n
+			body: this.stringifyQuery(body),
+			isStreamingBody: false
+		};
+		else return {
+			...__classPrivateFieldGet(this, _OpenAI_encoder, "f").call(this, {
+				body,
+				headers
 			}),
-			isStreamingBody: !1
+			isStreamingBody: false
 		};
 	}
 };
-Na = K, Pa = /* @__PURE__ */ new WeakMap(), Ma = /* @__PURE__ */ new WeakSet(), Fa = function() {
+_a = OpenAI, _OpenAI_encoder = /* @__PURE__ */ new WeakMap(), _OpenAI_instances = /* @__PURE__ */ new WeakSet(), _OpenAI_baseURLOverridden = function _OpenAI_baseURLOverridden() {
 	return this.baseURL !== "https://api.openai.com/v1";
-}, K.OpenAI = Na, K.DEFAULT_TIMEOUT = 6e5, K.OpenAIError = b, K.APIError = x, K.APIConnectionError = C, K.APIConnectionTimeoutError = te, K.APIUserAbortError = S, K.NotFoundError = ae, K.ConflictError = oe, K.RateLimitError = ce, K.BadRequestError = ne, K.AuthenticationError = re, K.InternalServerError = le, K.PermissionDeniedError = ie, K.UnprocessableEntityError = se, K.InvalidWebhookSignatureError = fe, K.toFile = Xt, K.Completions = Ci, K.Chat = cr, K.Embeddings = ki, K.Files = Ni, K.Images = Wi, K.Audio = Vr, K.Moderations = Ki, K.Models = Gi, K.FineTuning = Vi, K.Graders = Ui, K.VectorStores = Ea, K.Webhooks = ja, K.Beta = Si, K.Batches = Hr, K.Uploads = Sa, K.Admin = Fr, K.Responses = ga, K.Realtime = Yi, K.Conversations = Oi, K.Evals = Mi, K.Containers = Ei, K.Skills = ba, K.Videos = Da;
-function La(e) {
-	if (Ra(e)) return "Connection error. This may be caused by passing an undici dispatcher, such as ProxyAgent, that is incompatible with the fetch implementation. If you are using undici's ProxyAgent, pass the fetch implementation from the same undici package: import { fetch, ProxyAgent } from 'undici'; new OpenAI({ fetch, fetchOptions: { dispatcher: new ProxyAgent(...) } });";
+};
+OpenAI.OpenAI = _a;
+OpenAI.DEFAULT_TIMEOUT = 6e5;
+OpenAI.OpenAIError = OpenAIError;
+OpenAI.APIError = APIError;
+OpenAI.APIConnectionError = APIConnectionError;
+OpenAI.APIConnectionTimeoutError = APIConnectionTimeoutError;
+OpenAI.APIUserAbortError = APIUserAbortError;
+OpenAI.NotFoundError = NotFoundError;
+OpenAI.ConflictError = ConflictError;
+OpenAI.RateLimitError = RateLimitError;
+OpenAI.BadRequestError = BadRequestError;
+OpenAI.AuthenticationError = AuthenticationError;
+OpenAI.InternalServerError = InternalServerError;
+OpenAI.PermissionDeniedError = PermissionDeniedError;
+OpenAI.UnprocessableEntityError = UnprocessableEntityError;
+OpenAI.InvalidWebhookSignatureError = InvalidWebhookSignatureError;
+OpenAI.toFile = toFile;
+OpenAI.Completions = Completions;
+OpenAI.Chat = Chat;
+OpenAI.Embeddings = Embeddings;
+OpenAI.Files = Files$1;
+OpenAI.Images = Images;
+OpenAI.Audio = Audio;
+OpenAI.Moderations = Moderations;
+OpenAI.Models = Models;
+OpenAI.FineTuning = FineTuning;
+OpenAI.Graders = Graders;
+OpenAI.VectorStores = VectorStores;
+OpenAI.Webhooks = Webhooks;
+OpenAI.Beta = Beta;
+OpenAI.Batches = Batches;
+OpenAI.Uploads = Uploads;
+OpenAI.Admin = Admin;
+OpenAI.Responses = Responses;
+OpenAI.Realtime = Realtime;
+OpenAI.Conversations = Conversations;
+OpenAI.Evals = Evals;
+OpenAI.Containers = Containers;
+OpenAI.Skills = Skills;
+OpenAI.Videos = Videos;
+function getConnectionErrorMessage(error) {
+	if (isUndiciDispatcherVersionMismatchError(error)) return `Connection error. This may be caused by passing an undici dispatcher, such as ProxyAgent, that is incompatible with the fetch implementation. If you are using undici's ProxyAgent, pass the fetch implementation from the same undici package: import { fetch, ProxyAgent } from 'undici'; new OpenAI({ fetch, fetchOptions: { dispatcher: new ProxyAgent(...) } });`;
 }
-function Ra(e) {
-	let t = e;
-	for (let e = 0; e < 8 && t && typeof t == "object"; e++) {
-		let e = t;
-		if (e.code === "UND_ERR_INVALID_ARG" && typeof e.message == "string" && e.message.includes("invalid onRequestStart method")) return !0;
-		t = e.cause;
+function isUndiciDispatcherVersionMismatchError(error) {
+	let current = error;
+	for (let i = 0; i < 8 && current && typeof current === "object"; i++) {
+		const err = current;
+		if (err.code === "UND_ERR_INVALID_ARG" && typeof err.message === "string" && err.message.includes("invalid onRequestStart method")) return true;
+		current = err.cause;
 	}
-	return !1;
+	return false;
 }
 //#endregion
 //#region electron/ai.ts
-var za = "\n你是一个个人思维记录助手的意图识别引擎。你的任务是分析用户的自然语言输入，并将其分类并提取结构化信息。\n你必须只返回 JSON 格式的数据，不要包含任何额外的解释或 Markdown 标记（如 ```json）。\n\n分类类型 (type)：\n1. \"idea\": 普通想法\n2. \"task\": 待办（未来某天做，但没有精确时间）\n3. \"reminder\": 精确提醒（明确要求在某个具体时间提醒）\n4. \"learning\": 学习记录\n5. \"blog\": 博客素材\n6. \"summary\": 长期总结素材\n7. \"random\": 稀奇古怪想法\n8. \"normal\": 普通记录（只记录，不涉及上述分类）\n\n输出 JSON 格式要求：\n{\n  \"type\": \"idea | task | reminder | learning | blog | summary | random | normal\",\n  \"topic\": \"提取的主题标签（如 'AI提示词', '博客想法'），如果是普通记录可为空\",\n  \"taskTime\": \"如果 type 是 task，提取用户意图的时间（如 'tomorrow', 'next_week', 'after_3_days'），如果没有明确则为空\",\n  \"reminderTime\": \"如果 type 是 reminder，提取出 ISO 格式的时间字符串。推算规则：1) 严格根据提供的『当前时间及星期』进行相对时间推算（注意：中文语境下，如果今天是周日，『下周』通常指明天周一开始的那一周，因此『下周六』为加6天，请务必准确推算）。2) 如果用户只给出了天数却没有指定具体时间点，不要询问用户，请一律默认设置为那一天的 09:00:00。仅在完全无法推测日期时，才设置 needsClarification 为 true。\",\n  \"needsClarification\": boolean,\n  \"reply\": \"给用户的简短反馈语，例如：'已记录，明早会提醒你：整理提示词模板库'\"\n}\n\n当前时间：${CURRENT_TIME}\n";
-async function Ba(e, t, n, r = "gpt-3.5-turbo") {
-	let i = new K({
-		apiKey: t,
-		baseURL: n || void 0
-	}), a = /* @__PURE__ */ new Date(), o = `${a.getFullYear()}-${String(a.getMonth() + 1).padStart(2, "0")}-${String(a.getDate()).padStart(2, "0")} ${String(a.getHours()).padStart(2, "0")}:${String(a.getMinutes()).padStart(2, "0")}:${String(a.getSeconds()).padStart(2, "0")} (${[
+var SYSTEM_PROMPT = `
+你是一个个人思维记录助手的意图识别引擎。你的任务是分析用户的自然语言输入，并将其分类并提取结构化信息。
+你必须只返回 JSON 格式的数据，不要包含任何额外的解释或 Markdown 标记（如 \`\`\`json）。
+
+分类类型 (type)：
+1. "idea": 普通想法
+2. "task": 待办（未来某天做，但没有精确时间）
+3. "reminder": 精确提醒（明确要求在某个具体时间提醒）
+4. "learning": 学习记录
+5. "blog": 博客素材
+6. "summary": 长期总结素材
+7. "random": 稀奇古怪想法
+8. "normal": 普通记录（只记录，不涉及上述分类）
+
+输出 JSON 格式要求：
+{
+  "type": "idea | task | reminder | learning | blog | summary | random | normal",
+  "topic": "提取的主题标签（如 'AI提示词', '博客想法'），如果是普通记录可为空",
+  "taskTime": "如果 type 是 task，提取用户意图的时间（如 'tomorrow', 'next_week', 'after_3_days'），如果没有明确则为空",
+  "reminderTime": "如果 type 是 reminder，提取出 ISO 格式的时间字符串。推算规则：1) 严格根据提供的『当前时间及星期』进行相对时间推算（注意：中文语境下，如果今天是周日，『下周』通常指明天周一开始的那一周，因此『下周六』为加6天，请务必准确推算）。2) 如果用户只给出了天数却没有指定具体时间点，不要询问用户，请一律默认设置为那一天的 09:00:00。仅在完全无法推测日期时，才设置 needsClarification 为 true。",
+  "needsClarification": boolean,
+  "reply": "给用户的简短反馈语，例如：'已记录，明早会提醒你：整理提示词模板库'"
+}
+
+当前时间：\${CURRENT_TIME}
+`;
+async function analyzeIntent(text, apiKey, baseURL, modelName = "gpt-3.5-turbo") {
+	const openai = new OpenAI({
+		apiKey,
+		baseURL: baseURL || void 0
+	});
+	const d = /* @__PURE__ */ new Date();
+	const now = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")} (${[
 		"周日",
 		"周一",
 		"周二",
@@ -5348,270 +9432,391 @@ async function Ba(e, t, n, r = "gpt-3.5-turbo") {
 		"周四",
 		"周五",
 		"周六"
-	][a.getDay()]})`, s = za.replace("${CURRENT_TIME}", o);
+	][d.getDay()]})`;
+	const prompt = SYSTEM_PROMPT.replace("${CURRENT_TIME}", now);
 	try {
-		let t = (await i.chat.completions.create({
-			model: r,
+		const content = (await openai.chat.completions.create({
+			model: modelName,
 			messages: [{
 				role: "system",
-				content: s
+				content: prompt
 			}, {
 				role: "user",
-				content: e
+				content: text
 			}],
 			response_format: { type: "json_object" }
 		})).choices[0].message.content;
-		if (t) return JSON.parse(t);
-	} catch (e) {
-		throw console.error("AI Analysis failed:", e), e;
+		if (content) return JSON.parse(content);
+	} catch (error) {
+		console.error("AI Analysis failed:", error);
+		throw error;
 	}
 }
 //#endregion
 //#region electron/store.ts
-var Va = class {
-	constructor(e, t) {
-		this.defaults = t;
-		let n = i.getPath("userData");
-		this.filePath = u.join(n, e), this.data = this.parseDataFile(this.filePath, t);
+var Store = class {
+	constructor(filename, defaults) {
+		this.defaults = defaults;
+		const userDataPath = app.getPath("userData");
+		this.filePath = path.join(userDataPath, filename);
+		this.data = this.parseDataFile(this.filePath, defaults);
 	}
-	get(e) {
-		return this.data[e];
+	get(key) {
+		return this.data[key];
 	}
-	set(e, t) {
-		this.data[e] = t, this.saveData();
+	set(key, val) {
+		this.data[key] = val;
+		this.saveData();
 	}
 	getAll() {
 		return this.data;
 	}
-	setAll(e) {
-		this.data = e, this.saveData();
+	setAll(data) {
+		this.data = data;
+		this.saveData();
 	}
-	parseDataFile(e, t) {
+	parseDataFile(filePath, defaults) {
 		try {
-			return JSON.parse(d.readFileSync(e, "utf-8"));
-		} catch {
-			return t;
+			return JSON.parse(fs.readFileSync(filePath, "utf-8"));
+		} catch (error) {
+			return defaults;
 		}
 	}
 	saveData() {
-		d.writeFileSync(this.filePath, JSON.stringify(this.data, null, 2));
+		fs.writeFileSync(this.filePath, JSON.stringify(this.data, null, 2));
 	}
-}, Ha = "你正在生成一篇每周复盘，不是在合并每日记日。\n\n请根据这一周的每日记日、任务状态、长期总结更新记录，提炼出本周反复出现的主题、完成事项、未完成事项和值得保留的判断。\n\n不要逐日罗列。\n不要强行心理分析。\n不要把琐事升华成深层动机。\n如果本周记录较少，直接说明记录较少。\n如果本周主要是提醒和普通记录，生成轻量复盘。\n提醒类内容默认只作为事件，不作为长期想法。\n学习心得、方法经验、判断标准应进入“本周反复出现的想法”或“本周值得注意”。\n任务完成情况必须以后台任务状态为准，不要猜测。\n输出 Markdown。\n语气自然、克制、清晰。";
-function Ua(e = /* @__PURE__ */ new Date()) {
-	let t = new Date(e.valueOf()), n = (e.getDay() + 6) % 7;
-	t.setDate(t.getDate() - n + 3);
-	let r = t.valueOf();
-	t.setMonth(0, 1), t.getDay() !== 4 && t.setMonth(0, 1 + (4 - t.getDay() + 7) % 7);
-	let i = 1 + Math.ceil((r - t.valueOf()) / 6048e5);
-	return `${new Date(r).getFullYear()}-W${i.toString().padStart(2, "0")}`;
+};
+//#endregion
+//#region electron/weekly-review.ts
+var WEEKLY_PROMPT = `你正在生成一篇每周复盘，不是在合并每日记日。
+
+请根据这一周的每日记日、任务状态、长期总结更新记录，提炼出本周反复出现的主题、完成事项、未完成事项和值得保留的判断。
+
+不要逐日罗列。
+不要强行心理分析。
+不要把琐事升华成深层动机。
+如果本周记录较少，直接说明记录较少。
+如果本周主要是提醒和普通记录，生成轻量复盘。
+提醒类内容默认只作为事件，不作为长期想法。
+学习心得、方法经验、判断标准应进入“本周反复出现的想法”或“本周值得注意”。
+任务完成情况必须以后台任务状态为准，不要猜测。
+输出 Markdown。
+语气自然、克制、清晰。`;
+function getISOWeekData(date = /* @__PURE__ */ new Date()) {
+	const target = new Date(date.valueOf());
+	const dayNr = (date.getDay() + 6) % 7;
+	target.setDate(target.getDate() - dayNr + 3);
+	const firstThursday = target.valueOf();
+	target.setMonth(0, 1);
+	if (target.getDay() !== 4) target.setMonth(0, 1 + (4 - target.getDay() + 7) % 7);
+	const weekNumber = 1 + Math.ceil((firstThursday - target.valueOf()) / 6048e5);
+	return `${new Date(firstThursday).getFullYear()}-W${weekNumber.toString().padStart(2, "0")}`;
 }
-function Wa(e = /* @__PURE__ */ new Date()) {
-	let t = new Date(e), n = t.getDay(), r = t.getDate() - n + (n === 0 ? -6 : 1);
-	t.setDate(r), t.setHours(0, 0, 0, 0);
-	let i = new Date(t);
-	return i.setDate(i.getDate() + 6), i.setHours(23, 59, 59, 999), {
-		start: t,
-		end: i
+function getWeekRange(date = /* @__PURE__ */ new Date()) {
+	const start = new Date(date);
+	const day = start.getDay();
+	const diff = start.getDate() - day + (day === 0 ? -6 : 1);
+	start.setDate(diff);
+	start.setHours(0, 0, 0, 0);
+	const end = new Date(start);
+	end.setDate(end.getDate() + 6);
+	end.setHours(23, 59, 59, 999);
+	return {
+		start,
+		end
 	};
 }
-function Ga(e, t, n) {
-	if (!e) return [];
-	let r = m.join(e, "每日日记");
-	if (!p.existsSync(r)) return [];
-	let i = [], a = new Date(t);
-	for (; a <= n;) i.push(a.toISOString().split("T")[0]), a.setDate(a.getDate() + 1);
-	let o = [];
-	for (let e of i) {
-		let t = m.join(r, `${e}.md`);
-		p.existsSync(t) && o.push(`--- ${e} ---\n${p.readFileSync(t, "utf-8")}`);
+function getDailyDiaries(obsidianPath, start, end) {
+	if (!obsidianPath) return [];
+	const diariesDir = path$1.join(obsidianPath, "每日日记");
+	if (!fs$1.existsSync(diariesDir)) return [];
+	const days = [];
+	let curr = new Date(start);
+	while (curr <= end) {
+		days.push(curr.toISOString().split("T")[0]);
+		curr.setDate(curr.getDate() + 1);
 	}
-	return o;
+	const contents = [];
+	for (const day of days) {
+		const file = path$1.join(diariesDir, `${day}.md`);
+		if (fs$1.existsSync(file)) contents.push(`--- ${day} ---\n${fs$1.readFileSync(file, "utf-8")}`);
+	}
+	return contents;
 }
-async function Ka(e, t, n, r, i) {
-	let a = Ga(e.obsidianPath, n.start, n.end), o = r.getAll().filter((e) => {
-		let t = new Date(e.createdAt);
-		return t >= n.start && t <= n.end;
-	}), s = o.filter((e) => e.status === "pending" || e.status === "delayed"), c = o.filter((e) => e.status === "completed"), l = o.filter((e) => e.status === "cancelled"), u = {
+async function generateWeeklyReview(config, weekId, range, tasksStore, entriesStore) {
+	const diaries = getDailyDiaries(config.obsidianPath, range.start, range.end);
+	const weekTasks = tasksStore.getAll().filter((t) => {
+		const d = new Date(t.createdAt);
+		return d >= range.start && d <= range.end;
+	});
+	const pendingTasks = weekTasks.filter((t) => t.status === "pending" || t.status === "delayed");
+	const completedTasks = weekTasks.filter((t) => t.status === "completed");
+	const cancelledTasks = weekTasks.filter((t) => t.status === "cancelled");
+	const payload = {
 		period_type: "weekly",
-		week_id: t,
-		start_date: n.start.toISOString().split("T")[0],
-		end_date: n.end.toISOString().split("T")[0],
-		daily_journals: a,
-		tasks_completed: c.map((e) => e.originalText),
-		tasks_pending: s.map((e) => e.originalText),
-		tasks_cancelled: l.map((e) => e.originalText)
+		week_id: weekId,
+		start_date: range.start.toISOString().split("T")[0],
+		end_date: range.end.toISOString().split("T")[0],
+		daily_journals: diaries,
+		tasks_completed: completedTasks.map((t) => t.originalText),
+		tasks_pending: pendingTasks.map((t) => t.originalText),
+		tasks_cancelled: cancelledTasks.map((t) => t.originalText)
 	};
-	return (await new K({
-		apiKey: e.apiKey,
-		baseURL: e.apiBaseUrl || void 0
+	return (await new OpenAI({
+		apiKey: config.apiKey,
+		baseURL: config.apiBaseUrl || void 0
 	}).chat.completions.create({
-		model: e.modelName || "gpt-3.5-turbo",
+		model: config.modelName || "gpt-3.5-turbo",
 		messages: [{
 			role: "system",
-			content: Ha
+			content: WEEKLY_PROMPT
 		}, {
 			role: "user",
-			content: JSON.stringify(u, null, 2)
+			content: JSON.stringify(payload, null, 2)
 		}],
 		temperature: .7
 	})).choices[0].message?.content || "";
 }
 //#endregion
 //#region electron/review.ts
-var qa = "你是一个帮助用户复盘一天思维过程的 AI 助手。\n这是用户今天的所有原始输入记录和任务状态：\n{TODAY_DATA}\n\n请根据今天的记录内容，选择适合的复盘模式并生成【今日思维日记】和【长期总结更新】。\n\n### 复盘模式与结构：\n1. **轻量记录模式**：如果当天记录大多是精确提醒、测试、生活琐事。\n   - 不要强行升华深层心理动机，不要过度推断用户状态。\n   - 日记结构应为：## 今天的记录概况、## 今天发生的事、## 今天触发的提醒（如果有）、## 今天沉淀到长期总结的内容（如果有）、## 值得注意。\n2. **完整思维日记模式**：如果当天有丰富的想法、学习记录、判断或项目思路。\n   - 深入分析并梳理思维过程。\n   - 日记结构应为：## 今天的主要思考、## 重要想法、## 今天生成的待办（仅限长期待办 TASK）、## 今天完成的事、## 今天沉淀到长期总结的内容、## 值得继续看的内容。\n\n### 核心分拣规则（非常重要）：\n1. **长期总结的判断标准**：只要一条内容满足“以后可能复用、能指导之后怎么做、属于学习心得、方法经验、判断标准”，就**必须**进入长期总结（提取到 longTermUpdates，并在日记的“今天沉淀到长期总结的内容”中提及）。\n2. **主题归类规则**：这是目前已经存在的长期总结主题列表：\n【{EXISTING_TOPICS}】\n请你**尽可能**将新提取的经验归入上述已有的主题中（即使字面不完全一样，只要领域一致就合并）。只有当新经验实在无法归入现有分类时，才创造一个**最宽泛、最通用**的新主题名（如“生活感悟”、“读书笔记”、“技术积累”），绝不能给每条记录都创建一个小分类！\n3. **提醒与总结的界限**：“提醒”本身（如：一分钟后收衣服）不进长期总结。但是，从提醒中总结出的**使用方法或经验**（如：我发现一分钟提醒适合处理很小的拖延任务）属于方法经验，必须进入长期总结！\n4. **不要一刀切**：即使今天大部分内容是轻量的提醒测试，只要其中混有一条有价值的学习点（如“提示词用英文效果更好”），就必须把这个学习点单独挑出来放进长期总结，绝不能因为当天是“轻量模式”就忽略它！\n\n### 词汇规范：\n- **提醒 (Reminder)**：带有明确时间的单次提醒（如“一分钟后提醒我收衣服”）。写入日记的“今天触发的提醒”中。\n- **待办 (Task)**：没有具体时间、以后要做的长期待办（如“明天整理提示词模板库”）。写入日记的“今天生成的待办”中。\n绝对不要把单次提醒写进“今天生成的待办”里！\n\n请以 JSON 格式返回，不要包含任何额外的解释或 Markdown 标记（如 ```json），结构如下：\n{\n  \"diaryContent\": \"这里是生成的日记 Markdown 文本\",\n  \"longTermUpdates\": [\n    {\n      \"topic\": \"主题名\",\n      \"content\": \"追加的 Markdown 文本内容，带上今天的日期标题\"\n    }\n  ]\n}";
-async function Ja(e, t, n) {
-	if (!n.apiKey) throw Error("API Key not configured");
-	let r = "目前还没有任何长期总结。";
-	if (n.obsidianPath) {
-		let e = n.parentFolderName || "提示助手", t = n.summaryFolderName || "长期总结", i = u.join(n.obsidianPath, e, t);
-		if (d.existsSync(i)) {
-			let e = d.readdirSync(i).filter((e) => e.endsWith(".md"));
-			e.length > 0 && (r = e.map((e) => e.replace(".md", "")).join("、"));
+var REVIEW_PROMPT = `你是一个帮助用户复盘一天思维过程的 AI 助手。
+这是用户今天的所有原始输入记录和任务状态：
+{TODAY_DATA}
+
+请根据今天的记录内容，选择适合的复盘模式并生成【今日思维日记】和【长期总结更新】。
+
+### 复盘模式与结构：
+1. **轻量记录模式**：如果当天记录大多是精确提醒、测试、生活琐事。
+   - 不要强行升华深层心理动机，不要过度推断用户状态。
+   - 日记结构应为：## 今天的记录概况、## 今天发生的事、## 今天触发的提醒（如果有）、## 今天沉淀到长期总结的内容（如果有）、## 值得注意。
+2. **完整思维日记模式**：如果当天有丰富的想法、学习记录、判断或项目思路。
+   - 深入分析并梳理思维过程。
+   - 日记结构应为：## 今天的主要思考、## 重要想法、## 今天生成的待办（仅限长期待办 TASK）、## 今天完成的事、## 今天沉淀到长期总结的内容、## 值得继续看的内容。
+
+### 核心分拣规则（非常重要）：
+1. **长期总结的判断标准**：只要一条内容满足“以后可能复用、能指导之后怎么做、属于学习心得、方法经验、判断标准”，就**必须**进入长期总结（提取到 longTermUpdates，并在日记的“今天沉淀到长期总结的内容”中提及）。
+2. **主题归类规则**：这是目前已经存在的长期总结主题列表：
+【{EXISTING_TOPICS}】
+请你**尽可能**将新提取的经验归入上述已有的主题中（即使字面不完全一样，只要领域一致就合并）。只有当新经验实在无法归入现有分类时，才创造一个**最宽泛、最通用**的新主题名（如“生活感悟”、“读书笔记”、“技术积累”），绝不能给每条记录都创建一个小分类！
+3. **提醒与总结的界限**：“提醒”本身（如：一分钟后收衣服）不进长期总结。但是，从提醒中总结出的**使用方法或经验**（如：我发现一分钟提醒适合处理很小的拖延任务）属于方法经验，必须进入长期总结！
+4. **不要一刀切**：即使今天大部分内容是轻量的提醒测试，只要其中混有一条有价值的学习点（如“提示词用英文效果更好”），就必须把这个学习点单独挑出来放进长期总结，绝不能因为当天是“轻量模式”就忽略它！
+
+### 词汇规范：
+- **提醒 (Reminder)**：带有明确时间的单次提醒（如“一分钟后提醒我收衣服”）。写入日记的“今天触发的提醒”中。
+- **待办 (Task)**：没有具体时间、以后要做的长期待办（如“明天整理提示词模板库”）。写入日记的“今天生成的待办”中。
+绝对不要把单次提醒写进“今天生成的待办”里！
+
+请以 JSON 格式返回，不要包含任何额外的解释或 Markdown 标记（如 \`\`\`json），结构如下：
+{
+  "diaryContent": "这里是生成的日记 Markdown 文本",
+  "longTermUpdates": [
+    {
+      "topic": "主题名",
+      "content": "追加的 Markdown 文本内容，带上今天的日期标题"
+    }
+  ]
+}`;
+async function generateReviewDraft(entries, tasks, config) {
+	if (!config.apiKey) throw new Error("API Key not configured");
+	let existingTopicsStr = "目前还没有任何长期总结。";
+	if (config.obsidianPath) {
+		const parentDir = config.parentFolderName || "提示助手";
+		const summaryDirName = config.summaryFolderName || "长期总结";
+		const summaryDir = path.join(config.obsidianPath, parentDir, summaryDirName);
+		if (fs.existsSync(summaryDir)) {
+			const files = fs.readdirSync(summaryDir).filter((f) => f.endsWith(".md"));
+			if (files.length > 0) existingTopicsStr = files.map((f) => f.replace(".md", "")).join("、");
 		}
 	}
-	let i = JSON.stringify({
-		entries: e,
-		tasks: t
-	}), a = qa;
-	n.customReviewPrompt && n.customReviewPrompt.trim() && (a = n.customReviewPrompt + "\n\n请严格以 JSON 格式返回，结构同默认要求：\n{ \"diaryContent\": \"...\", \"longTermUpdates\": [{\"topic\": \"...\", \"content\": \"...\"}] }");
-	let o = a.replace("{TODAY_DATA}", i).replace("{EXISTING_TOPICS}", r), s = (await new K({
-		apiKey: n.apiKey,
-		baseURL: n.apiBaseUrl || void 0
+	const todayData = JSON.stringify({
+		entries,
+		tasks
+	});
+	let systemPrompt = REVIEW_PROMPT;
+	if (config.customReviewPrompt && config.customReviewPrompt.trim()) systemPrompt = config.customReviewPrompt + `\n\n请严格以 JSON 格式返回，结构同默认要求：\n{ "diaryContent": "...", "longTermUpdates": [{"topic": "...", "content": "..."}] }`;
+	const prompt = systemPrompt.replace("{TODAY_DATA}", todayData).replace("{EXISTING_TOPICS}", existingTopicsStr);
+	const content = (await new OpenAI({
+		apiKey: config.apiKey,
+		baseURL: config.apiBaseUrl || void 0
 	}).chat.completions.create({
-		model: n.modelName || "gpt-3.5-turbo",
+		model: config.modelName || "gpt-3.5-turbo",
 		messages: [{
 			role: "system",
-			content: o
+			content: prompt
 		}],
 		response_format: { type: "json_object" }
 	})).choices[0].message.content;
-	if (!s) throw Error("AI returned empty");
-	let c = JSON.parse(s);
-	if (e && e.length > 0) {
-		let t = "\n\n## 今日原始记录\n\n";
-		for (let n of e) {
-			let e = new Date(n.timestamp).toLocaleTimeString("zh-CN", {
+	if (!content) throw new Error("AI returned empty");
+	const result = JSON.parse(content);
+	if (entries && entries.length > 0) {
+		let rawLog = "\n\n## 今日原始记录\n\n";
+		for (const entry of entries) {
+			const time = new Date(entry.timestamp).toLocaleTimeString("zh-CN", {
 				hour: "2-digit",
 				minute: "2-digit",
-				hour12: !1
-			}), r = n.aiResult?.type || "normal";
-			if (t += `- **[${e}]** \`${r}\` ${n.text}\n`, n.aiResult?.feedback) {
-				let e = n.aiResult.feedback.replace(/\n/g, "\n  > ");
-				t += `  > ${e}\n`;
+				hour12: false
+			});
+			const typeLabel = entry.aiResult?.type || "normal";
+			rawLog += `- **[${time}]** \`${typeLabel}\` ${entry.text}\n`;
+			if (entry.aiResult?.feedback) {
+				const safeFeedback = entry.aiResult.feedback.replace(/\n/g, "\n  > ");
+				rawLog += `  > ${safeFeedback}\n`;
 			}
 		}
-		c.diaryContent += t;
+		result.diaryContent += rawLog;
 	}
-	return c;
+	return result;
 }
-async function Ya(e, t) {
-	if (!t.obsidianPath) throw Error("Obsidian Path not configured");
-	let n = (/* @__PURE__ */ new Date()).toISOString().split("T")[0], r = t.parentFolderName || "提示助手", i = t.diaryFolderName || "每日日记", a = t.summaryFolderName || "长期总结", o = u.join(t.obsidianPath, r, i), s = u.join(t.obsidianPath, r, a);
-	d.existsSync(o) || d.mkdirSync(o, { recursive: !0 }), d.existsSync(s) || d.mkdirSync(s, { recursive: !0 });
-	let c = u.join(o, `${n}.md`);
-	if (d.existsSync(c) || d.writeFileSync(c, `# ${n} 思维日记\n\n`), d.appendFileSync(c, e.diaryContent + "\n"), e.longTermUpdates && e.longTermUpdates.length > 0) for (let t of e.longTermUpdates) {
-		let e = t.topic.replace(/[<>:"/\\|?*]/g, "_"), r = u.join(s, `${e}.md`);
-		d.existsSync(r) || d.writeFileSync(r, `# ${t.topic}\n\n`), d.appendFileSync(r, "\n\n### " + n + "\n" + t.content + "\n");
+async function saveReview(result, config) {
+	if (!config.obsidianPath) throw new Error("Obsidian Path not configured");
+	const dateStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+	const parentDir = config.parentFolderName || "提示助手";
+	const diaryDirName = config.diaryFolderName || "每日日记";
+	const summaryDirName = config.summaryFolderName || "长期总结";
+	const diaryDir = path.join(config.obsidianPath, parentDir, diaryDirName);
+	const summaryDir = path.join(config.obsidianPath, parentDir, summaryDirName);
+	if (!fs.existsSync(diaryDir)) fs.mkdirSync(diaryDir, { recursive: true });
+	if (!fs.existsSync(summaryDir)) fs.mkdirSync(summaryDir, { recursive: true });
+	const diaryPath = path.join(diaryDir, `${dateStr}.md`);
+	if (!fs.existsSync(diaryPath)) fs.writeFileSync(diaryPath, `# ${dateStr} 思维日记\n\n`);
+	fs.appendFileSync(diaryPath, result.diaryContent + "\n");
+	if (result.longTermUpdates && result.longTermUpdates.length > 0) for (const update of result.longTermUpdates) {
+		const safeTopic = update.topic.replace(/[<>:"/\\|?*]/g, "_");
+		const summaryPath = path.join(summaryDir, `${safeTopic}.md`);
+		if (!fs.existsSync(summaryPath)) fs.writeFileSync(summaryPath, `# ${update.topic}\n\n`);
+		fs.appendFileSync(summaryPath, "\n\n### " + dateStr + "\n" + update.content + "\n");
 	}
-	return !0;
+	return true;
 }
-function Xa(e, t) {
-	if (!e.obsidianPath) return !1;
-	let n = t || (/* @__PURE__ */ new Date()).toISOString().split("T")[0], r = e.parentFolderName || "提示助手", i = e.diaryFolderName || "每日日记", a = u.join(e.obsidianPath, r, i, `${n}.md`);
-	return d.existsSync(a);
+function isReviewDoneToday(config, targetDateStr) {
+	if (!config.obsidianPath) return false;
+	const dateStr = targetDateStr || (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+	const parentDir = config.parentFolderName || "提示助手";
+	const diaryDir = config.diaryFolderName || "每日日记";
+	const diaryPath = path.join(config.obsidianPath, parentDir, diaryDir, `${dateStr}.md`);
+	return fs.existsSync(diaryPath);
 }
 //#endregion
 //#region electron/main.ts
-var Za = u.dirname(f(import.meta.url));
-process.env.APP_ROOT = u.join(Za, "..");
-var q = process.env.VITE_DEV_SERVER_URL, Qa = u.join(process.env.APP_ROOT, "dist-electron"), $a = u.join(process.env.APP_ROOT, "dist");
-process.env.VITE_PUBLIC = q ? u.join(process.env.APP_ROOT, "public") : $a;
-var J, eo = !0, to = null;
-function no() {
-	J = new t({
+var __dirname = path.dirname(fileURLToPath(import.meta.url));
+process.env.APP_ROOT = path.join(__dirname, "..");
+var VITE_DEV_SERVER_URL = process.env["VITE_DEV_SERVER_URL"];
+var MAIN_DIST = path.join(process.env.APP_ROOT, "dist-electron");
+var RENDERER_DIST = path.join(process.env.APP_ROOT, "dist");
+process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL ? path.join(process.env.APP_ROOT, "public") : RENDERER_DIST;
+var mainWindow;
+var canHideMainWindow = true;
+var tray = null;
+function createWindow() {
+	mainWindow = new BrowserWindow({
+		title: "思维胶囊",
 		width: 600,
 		height: 220,
-		show: !1,
-		frame: !1,
-		transparent: !0,
+		show: false,
+		icon: path.join(process.env.VITE_PUBLIC || "", "icon.png"),
+		frame: false,
+		transparent: true,
 		backgroundColor: "#00000000",
-		hasShadow: !1,
-		resizable: !1,
-		alwaysOnTop: !0,
-		skipTaskbar: !0,
+		hasShadow: false,
+		resizable: false,
+		alwaysOnTop: true,
+		skipTaskbar: true,
 		webPreferences: {
-			preload: u.join(Za, "preload.mjs"),
-			contextIsolation: !0,
-			nodeIntegration: !1
+			preload: path.join(__dirname, "preload.mjs"),
+			contextIsolation: true,
+			nodeIntegration: false
 		}
-	}), q ? J.loadURL(q) : J.loadFile(u.join($a, "index.html")), J.on("blur", () => {
-		eo && J?.hide();
+	});
+	if (VITE_DEV_SERVER_URL) mainWindow.loadURL(VITE_DEV_SERVER_URL);
+	else mainWindow.loadFile(path.join(RENDERER_DIST, "index.html"));
+	mainWindow.on("blur", () => {
+		if (canHideMainWindow) mainWindow?.hide();
 	});
 }
-var Y = null;
-function ro() {
-	if (Y) {
-		Y.show(), Y.focus();
+var settingsWindow = null;
+function showSettingsWindow() {
+	if (settingsWindow) {
+		settingsWindow.show();
+		settingsWindow.focus();
 		return;
 	}
-	Y = new t({
+	settingsWindow = new BrowserWindow({
 		width: 500,
 		height: 700,
 		minWidth: 480,
 		minHeight: 650,
-		show: !1,
+		show: false,
 		title: "系统设置",
-		autoHideMenuBar: !0,
+		icon: path.join(process.env.VITE_PUBLIC || "", "icon.png"),
+		autoHideMenuBar: true,
 		webPreferences: {
-			preload: u.join(Za, "preload.mjs"),
-			contextIsolation: !0,
-			nodeIntegration: !1
+			preload: path.join(__dirname, "preload.mjs"),
+			contextIsolation: true,
+			nodeIntegration: false
 		}
-	}), q ? Y.loadURL(q + "#/settings") : Y.loadFile(u.join($a, "index.html"), { hash: "settings" }), Y.once("ready-to-show", () => {
-		Y?.show();
-	}), Y.on("closed", () => {
-		Y = null;
+	});
+	if (VITE_DEV_SERVER_URL) settingsWindow.loadURL(VITE_DEV_SERVER_URL + "#/settings");
+	else settingsWindow.loadFile(path.join(RENDERER_DIST, "index.html"), { hash: "settings" });
+	settingsWindow.once("ready-to-show", () => {
+		settingsWindow?.show();
+	});
+	settingsWindow.on("closed", () => {
+		settingsWindow = null;
 	});
 }
-var X = null;
-function io() {
-	if (X) {
-		X.show(), X.focus();
+var todayWindow = null;
+function showTodayWindow() {
+	if (todayWindow) {
+		todayWindow.show();
+		todayWindow.focus();
 		return;
 	}
-	X = new t({
+	todayWindow = new BrowserWindow({
 		width: 600,
 		height: 800,
 		minWidth: 500,
 		minHeight: 600,
-		show: !1,
+		show: false,
 		title: "今日记录",
-		autoHideMenuBar: !0,
+		icon: path.join(process.env.VITE_PUBLIC || "", "icon.png"),
+		autoHideMenuBar: true,
 		webPreferences: {
-			preload: u.join(Za, "preload.mjs"),
-			contextIsolation: !0,
-			nodeIntegration: !1
+			preload: path.join(__dirname, "preload.mjs"),
+			contextIsolation: true,
+			nodeIntegration: false
 		}
-	}), q ? X.loadURL(q + "#/today") : X.loadFile(u.join($a, "index.html"), { hash: "today" }), X.once("ready-to-show", () => {
-		X?.show();
-	}), X.on("closed", () => {
-		X = null;
+	});
+	if (VITE_DEV_SERVER_URL) todayWindow.loadURL(VITE_DEV_SERVER_URL + "#/today");
+	else todayWindow.loadFile(path.join(RENDERER_DIST, "index.html"), { hash: "today" });
+	todayWindow.once("ready-to-show", () => {
+		todayWindow?.show();
+	});
+	todayWindow.on("closed", () => {
+		todayWindow = null;
 	});
 }
-function ao() {
-	let e = u.join(process.env.VITE_PUBLIC || "", "vite.svg"), t;
-	t = d.existsSync(e) ? s.createFromPath(e) : s.createEmpty();
-	let a = Z.getAll(), o = (a.shortcut || "CommandOrControl+`").replace("CommandOrControl", "Ctrl"), c = a.theme || "pastel", f = (e) => {
-		let t = Z.getAll();
-		t.theme = e, Z.setAll(t), J && J.webContents.send("theme-changed", e);
-	}, p = n.buildFromTemplate([
+function createTray() {
+	const iconPath = path.join(process.env.VITE_PUBLIC || "", "icon.png");
+	let icon;
+	if (fs.existsSync(iconPath)) icon = nativeImage.createFromPath(iconPath);
+	else icon = nativeImage.createEmpty();
+	const config = configStore.getAll();
+	const shortcutDisplay = (config.shortcut || "CommandOrControl+`").replace("CommandOrControl", "Ctrl");
+	const currentTheme = config.theme || "pastel";
+	const changeTheme = (newTheme) => {
+		const currentConfig = configStore.getAll();
+		currentConfig.theme = newTheme;
+		configStore.setAll(currentConfig);
+		if (mainWindow) mainWindow.webContents.send("theme-changed", newTheme);
+	};
+	const contextMenu = Menu.buildFromTemplate([
 		{
-			label: `记下想法 (${o})`,
-			click: () => oo()
+			label: `记下想法 (${shortcutDisplay})`,
+			click: () => showMainWindow()
 		},
 		{
 			label: "今日时间线",
-			click: () => io()
+			click: () => showTodayWindow()
 		},
 		{ type: "separator" },
 		{
@@ -5620,52 +9825,58 @@ function ao() {
 				{
 					label: "方案一：粉彩光晕 (Pastel)",
 					type: "radio",
-					checked: c === "pastel",
-					click: () => f("pastel")
+					checked: currentTheme === "pastel",
+					click: () => changeTheme("pastel")
 				},
 				{
 					label: "方案二：macOS 暗黑高级 (Obsidian)",
 					type: "radio",
-					checked: c === "macos-dark",
-					click: () => f("macos-dark")
+					checked: currentTheme === "macos-dark",
+					click: () => changeTheme("macos-dark")
 				},
 				{
 					label: "方案三：iOS 拟物厚亚克力 (Acrylic)",
 					type: "radio",
-					checked: c === "ios-acrylic",
-					click: () => f("ios-acrylic")
+					checked: currentTheme === "ios-acrylic",
+					click: () => changeTheme("ios-acrylic")
 				}
 			]
 		},
 		{ type: "separator" },
 		{
 			label: "立即晚间复盘",
-			click: () => fo()
+			click: () => showReviewWindow()
 		},
 		{
 			label: "打开笔记文件夹",
 			click: () => {
-				let e = Z.getAll();
-				e.obsidianPath && l.openPath(e.obsidianPath);
+				const currentConfig = configStore.getAll();
+				if (currentConfig.obsidianPath) shell.openPath(currentConfig.obsidianPath);
 			}
 		},
 		{ type: "separator" },
 		{
 			label: "设置",
-			click: () => ro()
+			click: () => showSettingsWindow()
 		},
 		{ type: "separator" },
 		{
 			label: "退出",
-			click: () => i.quit()
+			click: () => app.quit()
 		}
 	]);
-	to = new r(t), to.setToolTip("思维记录"), to.setContextMenu(p);
+	tray = new Tray(icon);
+	tray.setToolTip("思维胶囊");
+	tray.setContextMenu(contextMenu);
 }
-function oo() {
-	J && (J.show(), J.focus(), J.webContents.send("window-show"));
+function showMainWindow() {
+	if (mainWindow) {
+		mainWindow.show();
+		mainWindow.focus();
+		mainWindow.webContents.send("window-show");
+	}
 }
-var Z = new Va("config.json", {
+var configStore = new Store("config.json", {
 	obsidianPath: "",
 	apiKey: "",
 	apiBaseUrl: "",
@@ -5678,218 +9889,331 @@ var Z = new Va("config.json", {
 	diaryFolderName: "每日日记",
 	summaryFolderName: "长期总结",
 	theme: "pastel"
-}), Q = new Va("entries.json", []), so = new Va("tasks.json", []), co = new Va("reminders.json", []);
-i.whenReady().then(() => {
-	no(), ao();
-	let e = Z.getAll();
-	i.setLoginItemSettings({
-		openAtLogin: e.autoStart || !1,
-		openAsHidden: !0
+});
+var entriesStore = new Store("entries.json", []);
+var tasksStore = new Store("tasks.json", []);
+var remindersStore = new Store("reminders.json", []);
+var reviewStore = new Store("review_state.json", {
+	lastReviewDate: "",
+	lastMorningDate: ""
+});
+app.whenReady().then(() => {
+	createWindow();
+	createTray();
+	const config = configStore.getAll();
+	app.setLoginItemSettings({
+		openAtLogin: config.autoStart || false,
+		openAsHidden: true
 	});
-	let n = e.shortcut || "CommandOrControl+`";
+	const shortcut = config.shortcut || "CommandOrControl+`";
 	try {
-		a.register(n, () => {
-			J?.isVisible() ? J.hide() : oo();
+		globalShortcut.register(shortcut, () => {
+			if (mainWindow?.isVisible()) mainWindow.hide();
+			else showMainWindow();
 		});
 	} catch (e) {
 		console.error("Failed to register shortcut:", e);
 	}
-	if (!e.obsidianPath) ro();
+	if (!config.obsidianPath) showSettingsWindow();
 	else {
-		let t = (/* @__PURE__ */ new Date(Date.now() - 864e5)).toISOString().split("T")[0], n = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-		if (Q.getAll().some((e) => !e.hasReviewed && e.timestamp < n) && !Xa(e, t)) {
-			let { Notification: e } = h("electron"), t = new e({
+		const yesterdayStr = (/* @__PURE__ */ new Date(Date.now() - 864e5)).toISOString().split("T")[0];
+		const todayStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+		if (entriesStore.getAll().some((e) => !e.hasReviewed && e.timestamp < todayStr) && !isReviewDoneToday(config, yesterdayStr)) {
+			const { Notification } = __require("electron");
+			const notification = new Notification({
 				title: "补昨天复盘",
 				body: "昨天还没有生成思维日记，要现在补上吗？ 点击开始"
 			});
-			t.on("click", () => {
-				fo();
-			}), t.show();
+			notification.on("click", () => {
+				showReviewWindow();
+			});
+			notification.show();
 		}
 	}
-	o.on("set-can-hide", (e, t) => {
-		eo = t;
-	}), o.on("hide-window", (e) => {
-		let n = t.fromWebContents(e.sender);
-		n && n.hide();
-	}), o.on("close-settings", () => {
-		Y?.close();
-	}), o.handle("get-today-entries", () => {
-		let e = Q.getAll(), t = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-		return e.filter((e) => e.timestamp.startsWith(t));
-	}), o.handle("get-today-entry-count", () => {
-		let e = Q.getAll(), t = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-		return e.filter((e) => e.timestamp.startsWith(t) && e.status === "analyzed").length;
-	}), o.handle("get-config", () => Z.getAll()), o.handle("save-config", (e, t) => {
-		let n = Z.getAll();
-		if (n.shortcut !== t.shortcut && (n.shortcut && a.unregister(n.shortcut), t.shortcut)) try {
-			a.register(t.shortcut, () => {
-				J?.isVisible() ? J.hide() : oo();
-			});
-		} catch (e) {
-			console.error("Failed to update shortcut:", e);
+	ipcMain.on("set-can-hide", (_event, canHide) => {
+		canHideMainWindow = canHide;
+	});
+	ipcMain.on("hide-window", (event) => {
+		const win = BrowserWindow.fromWebContents(event.sender);
+		if (win) win.hide();
+	});
+	ipcMain.on("close-settings", () => {
+		settingsWindow?.close();
+	});
+	ipcMain.handle("get-today-entries", () => {
+		const entries = entriesStore.getAll();
+		const todayStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+		return entries.filter((e) => e.timestamp.startsWith(todayStr));
+	});
+	ipcMain.handle("get-today-entry-count", () => {
+		const entries = entriesStore.getAll();
+		const todayStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+		return entries.filter((e) => e.timestamp.startsWith(todayStr) && e.status === "analyzed").length;
+	});
+	ipcMain.handle("get-config", () => {
+		return configStore.getAll();
+	});
+	ipcMain.handle("save-config", (_event, newConfig) => {
+		const oldConfig = configStore.getAll();
+		if (oldConfig.shortcut !== newConfig.shortcut) {
+			if (oldConfig.shortcut) globalShortcut.unregister(oldConfig.shortcut);
+			if (newConfig.shortcut) try {
+				globalShortcut.register(newConfig.shortcut, () => {
+					if (mainWindow?.isVisible()) mainWindow.hide();
+					else showMainWindow();
+				});
+			} catch (e) {
+				console.error("Failed to update shortcut:", e);
+			}
 		}
-		return n.autoStart !== t.autoStart && i.setLoginItemSettings({
-			openAtLogin: t.autoStart || !1,
-			openAsHidden: !0
-		}), Z.setAll(t), to && to.destroy(), ao(), { success: !0 };
-	}), o.handle("quick-save", async (e, t) => {
-		let n = Date.now().toString(), r = Q.getAll();
-		return r.push({
-			id: n,
-			text: t,
+		if (oldConfig.autoStart !== newConfig.autoStart) app.setLoginItemSettings({
+			openAtLogin: newConfig.autoStart || false,
+			openAsHidden: true
+		});
+		configStore.setAll(newConfig);
+		if (tray) tray.destroy();
+		createTray();
+		return { success: true };
+	});
+	ipcMain.handle("quick-save", async (event, text) => {
+		const entryId = Date.now().toString();
+		const entries = entriesStore.getAll();
+		entries.push({
+			id: entryId,
+			text,
 			timestamp: (/* @__PURE__ */ new Date()).toISOString(),
 			status: "analyzed",
 			aiResult: {
 				type: "normal",
 				reply: "已记录（跳过分析）"
 			}
-		}), Q.setAll(r), { success: !0 };
-	}), o.handle("analyze-input", async (e, t) => {
-		let n = Date.now().toString(), r = Z.getAll(), i = {
-			id: n,
-			text: t,
+		});
+		entriesStore.setAll(entries);
+		return { success: true };
+	});
+	ipcMain.handle("analyze-input", async (event, text) => {
+		const entryId = Date.now().toString();
+		const config = configStore.getAll();
+		const newEntry = {
+			id: entryId,
+			text,
 			timestamp: (/* @__PURE__ */ new Date()).toISOString(),
 			status: "pending"
-		}, a = Q.getAll();
-		a.push(i), Q.setAll(a);
+		};
+		const entries = entriesStore.getAll();
+		entries.push(newEntry);
+		entriesStore.setAll(entries);
 		try {
-			if (!r.apiKey) return {
+			if (!config.apiKey) return {
 				reply: "已记录，但未配置 API Key，无法分析意图。",
 				type: "normal"
 			};
-			let e = await Ba(t, r.apiKey, r.apiBaseUrl, r.modelName), i = a.findIndex((e) => e.id === n);
-			if (i !== -1 && (a[i].status = "analyzed", a[i].aiResult = e, Q.setAll(a)), e.type === "task") {
-				let r = so.getAll();
-				r.push({
-					id: "task_" + n,
-					entryId: n,
-					originalText: t,
-					title: t,
-					type: e.type,
-					status: "pending",
-					createdAt: (/* @__PURE__ */ new Date()).toISOString()
-				}), so.setAll(r);
-			} else if (e.type === "reminder") {
-				let r = co.getAll(), i = new Date(Date.now() + 3600 * 1e3).toISOString();
-				e.reminderTime && !isNaN(new Date(e.reminderTime).getTime()) && (i = new Date(e.reminderTime).toISOString()), r.push({
-					id: "rem_" + n,
-					entryId: n,
-					originalText: t,
-					title: t,
-					type: e.type,
-					status: "pending",
-					remindAt: i,
-					createdAt: (/* @__PURE__ */ new Date()).toISOString()
-				}), co.setAll(r);
+			const result = await analyzeIntent(text, config.apiKey, config.apiBaseUrl, config.modelName);
+			const index = entries.findIndex((e) => e.id === entryId);
+			if (index !== -1) {
+				entries[index].status = "analyzed";
+				entries[index].aiResult = result;
+				entriesStore.setAll(entries);
 			}
-			return e;
-		} catch (e) {
-			return console.error(e), {
+			if (result.type === "task") {
+				const tasks = tasksStore.getAll();
+				tasks.push({
+					id: "task_" + entryId,
+					entryId,
+					originalText: text,
+					title: text,
+					type: result.type,
+					status: "pending",
+					createdAt: (/* @__PURE__ */ new Date()).toISOString()
+				});
+				tasksStore.setAll(tasks);
+			} else if (result.type === "reminder") {
+				const reminders = remindersStore.getAll();
+				let targetTime = new Date(Date.now() + 3600 * 1e3).toISOString();
+				if (result.reminderTime && !isNaN(new Date(result.reminderTime).getTime())) targetTime = new Date(result.reminderTime).toISOString();
+				reminders.push({
+					id: "rem_" + entryId,
+					entryId,
+					originalText: text,
+					title: text,
+					type: result.type,
+					status: "pending",
+					remindAt: targetTime,
+					createdAt: (/* @__PURE__ */ new Date()).toISOString()
+				});
+				remindersStore.setAll(reminders);
+			}
+			return result;
+		} catch (error) {
+			console.error(error);
+			return {
 				reply: "已记录，但 AI 分析失败。",
 				type: "error"
 			};
 		}
-	}), o.handle("handle-reminder-action", async (e, t, n) => {
-		let r = co.getAll(), i = r.findIndex((e) => e.id === t);
-		if (i !== -1) {
-			if (n === "done") r[i].status = "completed";
-			else if (n === "later") {
-				r[i].status = "delayed", r[i].remindAt = new Date(Date.now() + 1800 * 1e3).toISOString();
-				let e = Q.getAll();
-				e.push({
+	});
+	ipcMain.handle("handle-reminder-action", async (event, taskId, action) => {
+		const reminders = remindersStore.getAll();
+		const taskIndex = reminders.findIndex((t) => t.id === taskId);
+		if (taskIndex !== -1) {
+			if (action === "done") reminders[taskIndex].status = "completed";
+			else if (action === "later") {
+				reminders[taskIndex].status = "delayed";
+				reminders[taskIndex].remindAt = new Date(Date.now() + 1800 * 1e3).toISOString();
+				const entries = entriesStore.getAll();
+				entries.push({
 					id: Date.now().toString(),
-					text: `稍后提醒：${r[i].originalText}`,
+					text: `稍后提醒：${reminders[taskIndex].originalText}`,
 					timestamp: (/* @__PURE__ */ new Date()).toISOString(),
 					status: "analyzed",
 					aiResult: {
 						type: "reminder",
 						reply: "已推迟，将在 30 分钟后再次提醒。"
 					}
-				}), Q.setAll(e);
-			} else if (n === "tomorrow") {
-				r[i].status = "delayed";
-				let e = /* @__PURE__ */ new Date();
-				e.setDate(e.getDate() + 1), r[i].remindAt = e.toISOString();
+				});
+				entriesStore.setAll(entries);
+			} else if (action === "tomorrow") {
+				reminders[taskIndex].status = "delayed";
+				const tomorrow = /* @__PURE__ */ new Date();
+				tomorrow.setDate(tomorrow.getDate() + 1);
+				reminders[taskIndex].remindAt = tomorrow.toISOString();
 			}
-			co.setAll(r);
+			remindersStore.setAll(reminders);
 		}
-		$?.hide();
-	}), o.handle("handle-morning-actions", async (e, t) => {
-		let n = so.getAll(), r = /* @__PURE__ */ new Date(), i = Z.getAll(), a = i.afternoonTime || "15:00", o = /* @__PURE__ */ new Date(), [s, c] = a.split(":");
-		o.setHours(parseInt(s), parseInt(c), 0, 0);
-		let l = /* @__PURE__ */ new Date();
-		l.setHours(18, 0, 0, 0), t.forEach((e) => {
-			let t = n.findIndex((t) => t.id === e.taskId);
-			if (t !== -1) {
-				if (e.action === "done") n[t].status = "completed";
-				else if (e.action === "cancel") n[t].status = "cancelled";
-				else if (e.action === "later") if (n[t].status = "delayed", r < o) n[t].remindAt = o.toISOString();
-				else if (r < l) n[t].remindAt = l.toISOString();
-				else {
-					let e = /* @__PURE__ */ new Date();
-					e.setDate(e.getDate() + 1);
-					let [r, a] = (i.morningTime || "09:00").split(":");
-					e.setHours(parseInt(r), parseInt(a), 0, 0), n[t].remindAt = e.toISOString();
-				}
-				else if (e.action === "tomorrow") {
-					n[t].status = "delayed";
-					let e = /* @__PURE__ */ new Date();
-					e.setDate(e.getDate() + 1);
-					let [r, a] = (i.morningTime || "09:00").split(":");
-					e.setHours(parseInt(r), parseInt(a), 0, 0), n[t].remindAt = e.toISOString();
+		reminderWindow?.hide();
+	});
+	ipcMain.handle("handle-morning-actions", async (event, actions) => {
+		const tasks = tasksStore.getAll();
+		const now = /* @__PURE__ */ new Date();
+		const config = configStore.getAll();
+		const pmTimeStr = config.afternoonTime || "15:00";
+		const pmTime = /* @__PURE__ */ new Date();
+		const [h, m] = pmTimeStr.split(":");
+		pmTime.setHours(parseInt(h), parseInt(m), 0, 0);
+		const pmLateTime = /* @__PURE__ */ new Date();
+		pmLateTime.setHours(18, 0, 0, 0);
+		actions.forEach((act) => {
+			const taskIndex = tasks.findIndex((t) => t.id === act.taskId);
+			if (taskIndex !== -1) {
+				if (act.action === "done") tasks[taskIndex].status = "completed";
+				else if (act.action === "cancel") tasks[taskIndex].status = "cancelled";
+				else if (act.action === "later") {
+					tasks[taskIndex].status = "delayed";
+					if (now < pmTime) tasks[taskIndex].remindAt = pmTime.toISOString();
+					else if (now < pmLateTime) tasks[taskIndex].remindAt = pmLateTime.toISOString();
+					else {
+						const tomorrow = /* @__PURE__ */ new Date();
+						tomorrow.setDate(tomorrow.getDate() + 1);
+						const [mh, mm] = (config.morningTime || "09:00").split(":");
+						tomorrow.setHours(parseInt(mh), parseInt(mm), 0, 0);
+						tasks[taskIndex].remindAt = tomorrow.toISOString();
+					}
+				} else if (act.action === "tomorrow") {
+					tasks[taskIndex].status = "delayed";
+					const tomorrow = /* @__PURE__ */ new Date();
+					tomorrow.setDate(tomorrow.getDate() + 1);
+					const [mh, mm] = (config.morningTime || "09:00").split(":");
+					tomorrow.setHours(parseInt(mh), parseInt(mm), 0, 0);
+					tasks[taskIndex].remindAt = tomorrow.toISOString();
 				}
 			}
-		}), so.setAll(n), $?.hide();
-	}), o.handle("get-today-entry-count", async () => {
-		let e = Q.getAll(), t = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
-		return e.filter((e) => e.timestamp.startsWith(t)).length;
-	}), i.setLoginItemSettings({
-		openAtLogin: !0,
-		path: i.getPath("exe")
-	}), i.on("activate", () => {
-		t.getAllWindows().length === 0 && no();
+		});
+		tasksStore.setAll(tasks);
+		reminderWindow?.hide();
 	});
-	let r = new Va("review_state.json", {
-		lastReviewDate: "",
-		lastMorningDate: ""
+	app.setLoginItemSettings({
+		openAtLogin: true,
+		path: app.getPath("exe")
+	});
+	app.on("activate", () => {
+		if (BrowserWindow.getAllWindows().length === 0) createWindow();
 	});
 	setInterval(() => {
-		let e = so.getAll(), t = co.getAll(), n = /* @__PURE__ */ new Date(), i = Z.getAll(), a = n.toISOString().split("T")[0], o = r.getAll(), [s, c] = (i.morningTime || "09:00").split(":"), l = /* @__PURE__ */ new Date();
-		if (l.setHours(parseInt(s), parseInt(c), 0, 0), n >= l && o.lastMorningDate !== a) {
-			let t = e.filter((e) => e.status === "pending" || e.status === "delayed" && new Date(e.remindAt) <= n);
-			t.length > 0 && (po(t), o.lastMorningDate = a, r.setAll(o));
-		} else if (o.lastMorningDate === a) {
-			let t = e.filter((e) => e.status === "delayed" && new Date(e.remindAt) <= n);
-			t.length > 0 && (!$ || !$.isVisible()) && (po(t), t.forEach((e) => {
-				e.remindAt = new Date(Date.now() + 300 * 1e3).toISOString();
-			}), so.setAll(e));
+		const tasks = tasksStore.getAll();
+		const reminders = remindersStore.getAll();
+		const now = /* @__PURE__ */ new Date();
+		const config = configStore.getAll();
+		const todayStr = now.toISOString().split("T")[0];
+		const reviewState = reviewStore.getAll();
+		const [mh, mm] = (config.morningTime || "09:00").split(":");
+		const morningTime = /* @__PURE__ */ new Date();
+		morningTime.setHours(parseInt(mh), parseInt(mm), 0, 0);
+		if (now >= morningTime && reviewState.lastMorningDate !== todayStr) {
+			const pendingTasks = tasks.filter((t) => t.status === "pending" || t.status === "delayed" && new Date(t.remindAt) <= now);
+			if (pendingTasks.length > 0) {
+				showMorningWindow(pendingTasks);
+				reviewState.lastMorningDate = todayStr;
+				reviewStore.setAll(reviewState);
+			}
+		} else if (reviewState.lastMorningDate === todayStr) {
+			const dueDelayedTasks = tasks.filter((t) => t.status === "delayed" && new Date(t.remindAt) <= now);
+			if (dueDelayedTasks.length > 0 && (!reminderWindow || !reminderWindow.isVisible())) {
+				showMorningWindow(dueDelayedTasks);
+				dueDelayedTasks.forEach((t) => {
+					t.remindAt = new Date(Date.now() + 300 * 1e3).toISOString();
+				});
+				tasksStore.setAll(tasks);
+			}
 		}
-		let u = t.filter((e) => e.status === "pending" && new Date(e.remindAt) <= n);
-		u.length > 0 && (!$ || !$.isVisible()) && (mo(u[0]), u[0].status = "shown", co.setAll(t));
-		let [d, f] = (i.eveningTime || "22:00").split(":"), p = /* @__PURE__ */ new Date();
-		p.setHours(parseInt(d), parseInt(f), 0, 0), n >= p && o.lastReviewDate !== a && (fo(), o.lastReviewDate = a, r.setAll(o)), i.weeklyReview?.enabled !== !1 && lo(n, i, o);
+		const dueReminders = reminders.filter((r) => r.status === "pending" && new Date(r.remindAt) <= now);
+		__require("node:fs").appendFileSync("d:/codex-study/quick-note/debug.log", "now: " + now.toISOString() + ", dueReminders: " + dueReminders.length + ", windowVisible: " + (reminderWindow ? reminderWindow.isVisible() : "null") + "\n");
+		if (dueReminders.length > 0 && (!reminderWindow || !reminderWindow.isVisible())) {
+			showReminderWindow(dueReminders[0]);
+			dueReminders[0].status = "shown";
+			remindersStore.setAll(reminders);
+		}
+		const [eh, em] = (config.eveningTime || "22:00").split(":");
+		const eveningTime = /* @__PURE__ */ new Date();
+		eveningTime.setHours(parseInt(eh), parseInt(em), 0, 0);
+		if (now >= eveningTime && reviewState.lastReviewDate !== todayStr) {
+			showReviewWindow();
+			reviewState.lastReviewDate = todayStr;
+			reviewStore.setAll(reviewState);
+		}
+		if (config.weeklyReview?.enabled !== false) checkWeeklyReview(now, config, reviewState);
 	}, 6e4);
 });
-async function lo(e, t, n) {
-	n.weekly_reviews ||= {};
-	let [r, i] = (t.weeklyReview?.time || "22:30").split(":"), a = new Date(e), o = a.getDay();
-	if (!(o === 0 && e.getHours() * 60 + e.getMinutes() >= parseInt(r) * 60 + parseInt(i))) {
-		let e = o === 0 ? 7 : o;
-		a.setDate(a.getDate() - e), a.setHours(parseInt(r), parseInt(i), 0, 0);
+async function checkWeeklyReview(now, config, reviewState) {
+	if (!reviewState.weekly_reviews) reviewState.weekly_reviews = {};
+	const [wh, wm] = (config.weeklyReview?.time || "22:30").split(":");
+	let targetDate = new Date(now);
+	const currentDay = targetDate.getDay();
+	if (currentDay === 0 && now.getHours() * 60 + now.getMinutes() >= parseInt(wh) * 60 + parseInt(wm)) {} else {
+		const diffToLastSunday = currentDay === 0 ? 7 : currentDay;
+		targetDate.setDate(targetDate.getDate() - diffToLastSunday);
+		targetDate.setHours(parseInt(wh), parseInt(wm), 0, 0);
 	}
-	let s = Ua(a), c = Wa(a), l = n.weekly_reviews[s] || { status: "pending" }, u = !1, d = !1;
-	if (l.status === "pending") {
-		let t = new Date(c.end);
-		t.setHours(parseInt(r), parseInt(i), 0, 0), e >= t && (u = !0, e > new Date(t.getTime() + 3600 * 1e3) && (d = !0));
-	} else l.status === "snoozed" && l.next_prompt_at && new Date(l.next_prompt_at) <= e && (u = !0, d = !0);
-	u && (l.status = "prompting", n.weekly_reviews[s] = l, reviewStore.setAll(n), uo(s, c, d, t, n));
+	const weekId = getISOWeekData(targetDate);
+	const range = getWeekRange(targetDate);
+	const ws = reviewState.weekly_reviews[weekId] || { status: "pending" };
+	let shouldPrompt = false;
+	let isMissed = false;
+	if (ws.status === "pending") {
+		const triggerTime = new Date(range.end);
+		triggerTime.setHours(parseInt(wh), parseInt(wm), 0, 0);
+		if (now >= triggerTime) {
+			shouldPrompt = true;
+			if (now > new Date(triggerTime.getTime() + 3600 * 1e3)) isMissed = true;
+		}
+	} else if (ws.status === "snoozed") {
+		if (ws.next_prompt_at && new Date(ws.next_prompt_at) <= now) {
+			shouldPrompt = true;
+			isMissed = true;
+		}
+	}
+	if (shouldPrompt) {
+		ws.status = "prompting";
+		reviewState.weekly_reviews[weekId] = ws;
+		reviewStore.setAll(reviewState);
+		handleWeeklyReviewPrompt(weekId, range, isMissed, config, reviewState);
+	}
 }
-async function uo(e, t, n, r, i) {
-	let a = n ? `上周还没有生成每周复盘。\n\n时间范围：${t.start.toISOString().split("T")[0]} 至 ${t.end.toISOString().split("T")[0]}` : `准备生成每周复盘\n\n时间范围：${t.start.toISOString().split("T")[0]} 至 ${t.end.toISOString().split("T")[0]}`, { response: o } = await dialog.showMessageBox({
+async function handleWeeklyReviewPrompt(weekId, range, isMissed, config, reviewState) {
+	const msg = isMissed ? `上周还没有生成每周复盘。\n\n时间范围：${range.start.toISOString().split("T")[0]} 至 ${range.end.toISOString().split("T")[0]}` : `准备生成每周复盘\n\n时间范围：${range.start.toISOString().split("T")[0]} 至 ${range.end.toISOString().split("T")[0]}`;
+	const { response } = await dialog.showMessageBox({
 		type: "question",
 		title: "每周复盘",
-		message: a,
+		message: msg,
 		buttons: [
 			"现在生成/直接写入",
 			"今天晚上提醒/稍后",
@@ -5897,115 +10221,217 @@ async function uo(e, t, n, r, i) {
 			"取消"
 		],
 		cancelId: 3
-	}), s = i.weekly_reviews[e];
-	if (o === 0) {
-		s.status = "generating", i.weekly_reviews[e] = s, reviewStore.setAll(i);
+	});
+	const ws = reviewState.weekly_reviews[weekId];
+	if (response === 0) {
+		ws.status = "generating";
+		reviewState.weekly_reviews[weekId] = ws;
+		reviewStore.setAll(reviewState);
 		try {
-			let n = await Ka(r, e, t, so, Q);
-			if (r.obsidianPath) {
-				let t = u.join(r.obsidianPath, "周期复盘", "每周复盘");
-				d.existsSync(t) || d.mkdirSync(t, { recursive: !0 });
-				let i = u.join(t, `${e}.md`);
-				d.existsSync(i) && (i = u.join(t, `${e}_补充.md`)), d.writeFileSync(i, n, "utf-8"), s.status = "generated", dialog.showMessageBox({
+			const content = await generateWeeklyReview(config, weekId, range, tasksStore, entriesStore);
+			if (config.obsidianPath) {
+				const outDir = path.join(config.obsidianPath, "周期复盘", "每周复盘");
+				if (!fs.existsSync(outDir)) fs.mkdirSync(outDir, { recursive: true });
+				let file = path.join(outDir, `${weekId}.md`);
+				if (fs.existsSync(file)) file = path.join(outDir, `${weekId}_补充.md`);
+				fs.writeFileSync(file, content, "utf-8");
+				ws.status = "generated";
+				dialog.showMessageBox({
 					type: "info",
 					title: "每周复盘",
 					message: "每周复盘生成成功并已写入！"
 				});
 			}
 		} catch (e) {
-			s.status = "snoozed";
-			let t = /* @__PURE__ */ new Date();
-			t.setDate(t.getDate() + 1), t.setHours(9, 0, 0, 0), s.next_prompt_at = t.toISOString(), dialog.showErrorBox("生成失败", e.message);
+			ws.status = "snoozed";
+			const tomorrow = /* @__PURE__ */ new Date();
+			tomorrow.setDate(tomorrow.getDate() + 1);
+			tomorrow.setHours(9, 0, 0, 0);
+			ws.next_prompt_at = tomorrow.toISOString();
+			dialog.showErrorBox("生成失败", e.message);
 		}
-	} else if (o === 1) {
-		s.status = "snoozed";
-		let e = /* @__PURE__ */ new Date();
-		n ? (e.setHours(22, 0, 0, 0), e <= /* @__PURE__ */ new Date() && e.setDate(e.getDate() + 1)) : e.setHours(e.getHours() + 1), s.next_prompt_at = e.toISOString();
-	} else if (o === 2) s.status = "skipped";
+	} else if (response === 1) {
+		ws.status = "snoozed";
+		const next = /* @__PURE__ */ new Date();
+		if (isMissed) {
+			next.setHours(22, 0, 0, 0);
+			if (next <= /* @__PURE__ */ new Date()) next.setDate(next.getDate() + 1);
+		} else next.setHours(next.getHours() + 1);
+		ws.next_prompt_at = next.toISOString();
+	} else if (response === 2) ws.status = "skipped";
 	else {
-		s.status = "snoozed";
-		let e = /* @__PURE__ */ new Date();
-		e.setHours(22, 0, 0, 0), e <= /* @__PURE__ */ new Date() && e.setDate(e.getDate() + 1), s.next_prompt_at = e.toISOString();
+		ws.status = "snoozed";
+		const next = /* @__PURE__ */ new Date();
+		next.setHours(22, 0, 0, 0);
+		if (next <= /* @__PURE__ */ new Date()) next.setDate(next.getDate() + 1);
+		ws.next_prompt_at = next.toISOString();
 	}
-	i.weekly_reviews[e] = s, reviewStore.setAll(i);
+	reviewState.weekly_reviews[weekId] = ws;
+	reviewStore.setAll(reviewState);
 }
-o.handle("generate-review-draft", async () => {
-	let e = Q.getAll(), t = so.getAll(), n = Z.getAll(), r = (/* @__PURE__ */ new Date()).toISOString().split("T")[0], i = e.filter((e) => e.timestamp.startsWith(r));
+ipcMain.handle("generate-review-draft", async () => {
+	const entries = entriesStore.getAll();
+	const tasks = tasksStore.getAll();
+	const config = configStore.getAll();
+	const todayStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+	const todayEntries = entries.filter((e) => e.timestamp.startsWith(todayStr));
 	try {
 		return {
-			success: !0,
-			draft: await Ja(i, t, n)
+			success: true,
+			draft: await generateReviewDraft(todayEntries, tasks, config)
 		};
-	} catch (e) {
+	} catch (err) {
 		return {
-			success: !1,
-			error: e.message
+			success: false,
+			error: err.message
 		};
 	}
-}), o.handle("save-review", async (e, t) => {
-	try {
-		await Ya(t, Z.getAll());
-		let e = Q.getAll(), n = (/* @__PURE__ */ new Date()).toISOString().split("T")[0], r = !1;
-		for (let t of e) !t.hasReviewed && t.timestamp <= n + "T23:59:59" && (t.hasReviewed = !0, r = !0);
-		return r && Q.set(e), { success: !0 };
-	} catch (e) {
-		return {
-			success: !1,
-			error: e.message
-		};
-	}
-}), o.handle("delete-today-review", () => {
-	let e = Z.getAll(), t = (/* @__PURE__ */ new Date()).toISOString().split("T")[0], n = e.parentFolderName || "提示助手", r = e.diaryFolderName || "每日日记", i = u.join(e.obsidianPath, n, r, `${t}.md`);
-	d.existsSync(i) && d.unlinkSync(i);
-	let a = Q.getAll(), o = !1;
-	for (let e of a) e.timestamp.startsWith(t) && e.hasReviewed && (e.hasReviewed = !1, o = !0);
-	return o && Q.set(a), !0;
-}), o.handle("check-review-status", () => Xa(Z.getAll())), o.handle("open-today-review", () => {
-	let e = Z.getAll(), t = (/* @__PURE__ */ new Date()).toISOString().split("T")[0], n = e.parentFolderName || "提示助手", r = e.diaryFolderName || "每日日记", i = u.join(e.obsidianPath, n, r, `${t}.md`);
-	l.openPath(i);
 });
-var $ = null;
-function fo() {
-	$ ? ($?.show(), $?.webContents.send("review-show"), l.beep()) : (ho(), $?.webContents.once("did-finish-load", () => {
-		$?.show(), $?.webContents.send("review-show"), l.beep();
-	}));
+ipcMain.handle("save-review", async (_event, draft) => {
+	try {
+		await saveReview(draft, configStore.getAll());
+		const entries = entriesStore.getAll();
+		const dateStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+		let updated = false;
+		for (const e of entries) if (!e.hasReviewed && e.timestamp <= dateStr + "T23:59:59") {
+			e.hasReviewed = true;
+			updated = true;
+		}
+		if (updated) entriesStore.set(entries);
+		return { success: true };
+	} catch (error) {
+		return {
+			success: false,
+			error: error.message
+		};
+	}
+});
+ipcMain.handle("delete-today-review", () => {
+	const config = configStore.getAll();
+	const dateStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+	const parentDir = config.parentFolderName || "提示助手";
+	const diaryDir = config.diaryFolderName || "每日日记";
+	const diaryPath = path.join(config.obsidianPath, parentDir, diaryDir, `${dateStr}.md`);
+	if (fs.existsSync(diaryPath)) fs.unlinkSync(diaryPath);
+	const entries = entriesStore.getAll();
+	let updated = false;
+	for (const e of entries) if (e.timestamp.startsWith(dateStr) && e.hasReviewed) {
+		e.hasReviewed = false;
+		updated = true;
+	}
+	if (updated) entriesStore.set(entries);
+	return true;
+});
+ipcMain.handle("check-review-status", () => {
+	return isReviewDoneToday(configStore.getAll());
+});
+ipcMain.handle("open-today-review", () => {
+	const config = configStore.getAll();
+	const dateStr = (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+	const parentDir = config.parentFolderName || "提示助手";
+	const diaryDir = config.diaryFolderName || "每日日记";
+	const diaryPath = path.join(config.obsidianPath, parentDir, diaryDir, `${dateStr}.md`);
+	shell.openPath(diaryPath);
+});
+var reminderWindow = null;
+function showReviewWindow() {
+	if (!reminderWindow) {
+		createReminderWindowInternal();
+		reminderWindow?.webContents.once("did-finish-load", () => {
+			reminderWindow?.show();
+			reminderWindow?.webContents.send("review-show");
+			shell.beep();
+		});
+	} else {
+		reminderWindow?.show();
+		reminderWindow?.webContents.send("review-show");
+		shell.beep();
+	}
 }
-function po(e) {
-	$ ? ($?.show(), $?.webContents.send("morning-show", e), l.beep()) : (ho(), $?.webContents.once("did-finish-load", () => {
-		$?.show(), $?.webContents.send("morning-show", e), l.beep();
-	}));
+function showMorningWindow(tasks) {
+	if (!reminderWindow) {
+		createReminderWindowInternal();
+		reminderWindow?.webContents.once("did-finish-load", () => {
+			reminderWindow?.show();
+			reminderWindow?.webContents.send("morning-show", tasks);
+			shell.beep();
+		});
+	} else {
+		reminderWindow?.show();
+		reminderWindow?.webContents.send("morning-show", tasks);
+		shell.beep();
+	}
 }
-function mo(e) {
-	$ ? ($?.show(), $?.webContents.send("reminder-show", e), l.beep()) : (ho(), $?.webContents.once("did-finish-load", () => {
-		$?.show(), $?.webContents.send("reminder-show", e), l.beep();
-	}));
+function showReminderWindow(task) {
+	if (!reminderWindow) {
+		createReminderWindowInternal();
+		reminderWindow?.webContents.once("did-finish-load", () => {
+			reminderWindow?.show();
+			reminderWindow?.webContents.send("reminder-show", task);
+			shell.beep();
+		});
+	} else {
+		reminderWindow?.show();
+		reminderWindow?.webContents.send("reminder-show", task);
+		shell.beep();
+	}
 }
-function ho() {
-	let { width: e, height: n } = c.getPrimaryDisplay().workAreaSize;
-	$ = new t({
+function createReminderWindowInternal() {
+	const config = configStore.getAll();
+	const cursorPoint = screen.getCursorScreenPoint();
+	const display = screen.getDisplayNearestPoint(cursorPoint);
+	const { width, height } = display.workAreaSize;
+	const { x: displayX, y: displayY } = display.bounds;
+	let targetX = displayX + width - 430;
+	let targetY = displayY + height - 690;
+	if (config.reminderWindowPos && typeof config.reminderWindowPos.x === "number" && typeof config.reminderWindowPos.y === "number") {
+		targetX = config.reminderWindowPos.x;
+		targetY = config.reminderWindowPos.y;
+	}
+	reminderWindow = new BrowserWindow({
+		title: "思维胶囊",
 		width: 400,
 		height: 650,
-		x: 30,
-		y: n - 690,
-		show: !1,
-		frame: !1,
-		transparent: !0,
+		x: targetX,
+		y: targetY,
+		show: false,
+		icon: path.join(process.env.VITE_PUBLIC || "", "icon.png"),
+		frame: false,
+		transparent: true,
 		backgroundColor: "#00000000",
-		hasShadow: !1,
-		resizable: !1,
-		alwaysOnTop: !0,
-		skipTaskbar: !0,
+		hasShadow: false,
+		resizable: false,
+		alwaysOnTop: true,
+		skipTaskbar: true,
 		webPreferences: {
-			preload: u.join(Za, "preload.mjs"),
-			contextIsolation: !0,
-			nodeIntegration: !1
+			preload: path.join(__dirname, "preload.mjs"),
+			contextIsolation: true,
+			nodeIntegration: false
 		}
-	}), q ? $.loadURL(q + "#/reminder") : $.loadFile(u.join($a, "index.html"), { hash: "reminder" }), $.on("blur", () => {});
+	});
+	reminderWindow.on("moved", () => {
+		if (reminderWindow) {
+			const bounds = reminderWindow.getBounds();
+			const currentConfig = configStore.getAll();
+			currentConfig.reminderWindowPos = {
+				x: bounds.x,
+				y: bounds.y
+			};
+			configStore.setAll(currentConfig);
+		}
+	});
+	if (VITE_DEV_SERVER_URL) reminderWindow.loadURL(VITE_DEV_SERVER_URL + "#/reminder");
+	else reminderWindow.loadFile(path.join(RENDERER_DIST, "index.html"), { hash: "reminder" });
+	reminderWindow.on("blur", () => {});
 }
-i.on("window-all-closed", () => {
-	process.platform !== "darwin" && (i.quit(), J = null);
-}), i.on("will-quit", () => {
-	a.unregisterAll();
+app.on("window-all-closed", () => {
+	if (process.platform !== "darwin") {
+		app.quit();
+		mainWindow = null;
+	}
+});
+app.on("will-quit", () => {
+	globalShortcut.unregisterAll();
 });
 //#endregion
-export { Qa as MAIN_DIST, $a as RENDERER_DIST, q as VITE_DEV_SERVER_URL };
+export { MAIN_DIST, RENDERER_DIST, VITE_DEV_SERVER_URL };

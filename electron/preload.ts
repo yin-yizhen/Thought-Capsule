@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   analyzeInput: (text: string) => ipcRenderer.invoke('analyze-input', text),
   quickSave: (text: string) => ipcRenderer.invoke('quick-save', text),
   handleReminderAction: (taskId: string, action: string) => ipcRenderer.invoke('handle-reminder-action', taskId, action),
+  handleMorningActions: (actions: any[]) => ipcRenderer.invoke('handle-morning-actions', actions),
   generateReviewDraft: () => ipcRenderer.invoke('generate-review-draft'),
   saveReview: (draft: any) => ipcRenderer.invoke('save-review', draft),
   getConfig: () => ipcRenderer.invoke('get-config'),
@@ -24,6 +25,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const listener = (_event: any, task: any) => callback(task);
     ipcRenderer.on('reminder-show', listener);
     return () => ipcRenderer.removeListener('reminder-show', listener);
+  },
+  onMorningShow: (callback: (tasks: any[]) => void) => {
+    const listener = (_event: any, tasks: any[]) => callback(tasks);
+    ipcRenderer.on('morning-show', listener);
+    return () => ipcRenderer.removeListener('morning-show', listener);
   },
   onReviewShow: (callback: () => void) => {
     ipcRenderer.on('review-show', callback);

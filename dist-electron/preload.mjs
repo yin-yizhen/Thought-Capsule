@@ -1,1 +1,45 @@
-let e=require("electron");e.contextBridge.exposeInMainWorld(`electronAPI`,{setCanHide:t=>e.ipcRenderer.send(`set-can-hide`,t),hideWindow:()=>e.ipcRenderer.send(`hide-window`),analyzeInput:t=>e.ipcRenderer.invoke(`analyze-input`,t),quickSave:t=>e.ipcRenderer.invoke(`quick-save`,t),handleReminderAction:(t,n)=>e.ipcRenderer.invoke(`handle-reminder-action`,t,n),generateReviewDraft:()=>e.ipcRenderer.invoke(`generate-review-draft`),saveReview:t=>e.ipcRenderer.invoke(`save-review`,t),getConfig:()=>e.ipcRenderer.invoke(`get-config`),saveConfig:t=>e.ipcRenderer.invoke(`save-config`,t),closeSettings:()=>e.ipcRenderer.send(`close-settings`),getTodayEntries:()=>e.ipcRenderer.invoke(`get-today-entries`),getTodayEntryCount:()=>e.ipcRenderer.invoke(`get-today-entry-count`),checkReviewStatus:()=>e.ipcRenderer.invoke(`check-review-status`),openTodayReview:()=>e.ipcRenderer.invoke(`open-today-review`),deleteTodayReview:()=>e.ipcRenderer.invoke(`delete-today-review`),onWindowShow:t=>(e.ipcRenderer.on(`window-show`,t),()=>e.ipcRenderer.removeAllListeners(`window-show`)),onReminderShow:t=>{let n=(e,n)=>t(n);return e.ipcRenderer.on(`reminder-show`,n),()=>e.ipcRenderer.removeListener(`reminder-show`,n)},onReviewShow:t=>(e.ipcRenderer.on(`review-show`,t),()=>e.ipcRenderer.removeAllListeners(`review-show`)),showThemeContextMenu:()=>e.ipcRenderer.send(`show-theme-context-menu`),onThemeChange:t=>{let n=(e,n)=>t(n);return e.ipcRenderer.on(`theme-changed`,n),()=>e.ipcRenderer.removeListener(`theme-changed`,n)}});
+let electron = require("electron");
+//#region electron/preload.ts
+electron.contextBridge.exposeInMainWorld("electronAPI", {
+	setCanHide: (canHide) => electron.ipcRenderer.send("set-can-hide", canHide),
+	hideWindow: () => electron.ipcRenderer.send("hide-window"),
+	analyzeInput: (text) => electron.ipcRenderer.invoke("analyze-input", text),
+	quickSave: (text) => electron.ipcRenderer.invoke("quick-save", text),
+	handleReminderAction: (taskId, action) => electron.ipcRenderer.invoke("handle-reminder-action", taskId, action),
+	handleMorningActions: (actions) => electron.ipcRenderer.invoke("handle-morning-actions", actions),
+	generateReviewDraft: () => electron.ipcRenderer.invoke("generate-review-draft"),
+	saveReview: (draft) => electron.ipcRenderer.invoke("save-review", draft),
+	getConfig: () => electron.ipcRenderer.invoke("get-config"),
+	saveConfig: (config) => electron.ipcRenderer.invoke("save-config", config),
+	closeSettings: () => electron.ipcRenderer.send("close-settings"),
+	getTodayEntries: () => electron.ipcRenderer.invoke("get-today-entries"),
+	getTodayEntryCount: () => electron.ipcRenderer.invoke("get-today-entry-count"),
+	checkReviewStatus: () => electron.ipcRenderer.invoke("check-review-status"),
+	openTodayReview: () => electron.ipcRenderer.invoke("open-today-review"),
+	deleteTodayReview: () => electron.ipcRenderer.invoke("delete-today-review"),
+	onWindowShow: (callback) => {
+		electron.ipcRenderer.on("window-show", callback);
+		return () => electron.ipcRenderer.removeAllListeners("window-show");
+	},
+	onReminderShow: (callback) => {
+		const listener = (_event, task) => callback(task);
+		electron.ipcRenderer.on("reminder-show", listener);
+		return () => electron.ipcRenderer.removeListener("reminder-show", listener);
+	},
+	onMorningShow: (callback) => {
+		const listener = (_event, tasks) => callback(tasks);
+		electron.ipcRenderer.on("morning-show", listener);
+		return () => electron.ipcRenderer.removeListener("morning-show", listener);
+	},
+	onReviewShow: (callback) => {
+		electron.ipcRenderer.on("review-show", callback);
+		return () => electron.ipcRenderer.removeAllListeners("review-show");
+	},
+	showThemeContextMenu: () => electron.ipcRenderer.send("show-theme-context-menu"),
+	onThemeChange: (callback) => {
+		const listener = (_event, theme) => callback(theme);
+		electron.ipcRenderer.on("theme-changed", listener);
+		return () => electron.ipcRenderer.removeListener("theme-changed", listener);
+	}
+});
+//#endregion

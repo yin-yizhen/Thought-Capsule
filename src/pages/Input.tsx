@@ -8,12 +8,14 @@ function App() {
   const [status, setStatus] = useState<'idle' | 'saving' | 'success'>('idle');
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const [theme, setTheme] = useState<'pastel' | 'macos-dark' | 'ios-acrylic'>('pastel');
+  const [sendKey, setSendKey] = useState<'Enter' | 'Shift+Enter'>('Shift+Enter');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    // Load initial theme
+    // Load initial config
     window.electronAPI?.getConfig?.().then((config: any) => {
       if (config.theme) setTheme(config.theme);
+      if (config.sendKey) setSendKey(config.sendKey);
     });
     
     // Listen for theme changes
@@ -30,6 +32,12 @@ function App() {
     const cleanup = window.electronAPI?.onWindowShow(() => {
       setText('');
       setStatus('idle');
+      
+      // Fetch latest config in case it was changed
+      window.electronAPI?.getConfig?.().then((config: any) => {
+        if (config.sendKey) setSendKey(config.sendKey);
+      });
+
       if (textareaRef.current) {
         textareaRef.current.style.height = '40px';
       }
@@ -56,9 +64,14 @@ function App() {
       } else {
         window.electronAPI?.hideWindow();
       }
-    } else if (e.key === 'Enter' && e.shiftKey) {
-      e.preventDefault();
-      handleSubmit();
+    } else if (e.key === 'Enter') {
+      if (sendKey === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        handleSubmit();
+      } else if (sendKey === 'Shift+Enter' && e.shiftKey) {
+        e.preventDefault();
+        handleSubmit();
+      }
     }
   };
 
