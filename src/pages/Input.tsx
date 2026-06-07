@@ -63,7 +63,7 @@ function App() {
   return (
     <div className="w-full h-full flex items-center justify-center p-4 bg-transparent">
       <div 
-        className="w-full h-full bg-[#fcfcfc] shadow-[0_0_40px_rgba(0,0,0,0.06)] rounded-[32px] overflow-hidden flex flex-col transition-all duration-300 relative"
+        className="w-full h-full bg-white/70 backdrop-blur-2xl shadow-[0_8px_16px_-4px_rgba(0,0,0,0.15)] border border-white/50 rounded-[32px] overflow-hidden flex flex-col transition-all duration-300 relative"
         style={{ WebkitAppRegion: 'drag' } as any}
       >
         
@@ -80,28 +80,7 @@ function App() {
             disabled={status !== 'idle'}
             autoFocus
           />
-          {/* Discard Confirmation Overlay */}
-          {showDiscardConfirm && (
-            <div className="absolute inset-0 bg-[#fcfcfc]/90 backdrop-blur-md flex items-center justify-center rounded-[32px]" style={{ WebkitAppRegion: 'no-drag' } as any}>
-              <div className="flex flex-col items-center gap-5">
-                <span className="text-stone-800 font-medium">内容还没保存，确认要丢弃吗？</span>
-                <div className="flex gap-3">
-                  <button onClick={() => { window.electronAPI?.hideWindow(); setText(''); setShowDiscardConfirm(false); }} className="px-5 py-2.5 rounded-full bg-white border border-stone-200 text-stone-600 font-medium hover:bg-stone-50 transition-colors shadow-sm text-sm">
-                    确定退出
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowDiscardConfirm(false);
-                      setTimeout(() => textareaRef.current?.focus(), 10);
-                    }}
-                    className="px-5 py-2.5 rounded-full bg-stone-900 text-white font-medium hover:bg-stone-800 transition-colors shadow-sm text-sm"
-                  >
-                    继续编辑
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
+
         </div>
 
         {/* Footer */}
@@ -119,6 +98,28 @@ function App() {
             <Send className="w-5 h-5" />
           </button>
         </div>
+        {/* Discard Confirmation Overlay */}
+        {showDiscardConfirm && (
+          <div className="absolute inset-0 bg-[#fcfcfc]/90 backdrop-blur-md flex items-center justify-center rounded-[32px] z-50" style={{ WebkitAppRegion: 'no-drag' } as any}>
+            <div className="flex flex-col items-center gap-5">
+              <span className="text-stone-800 font-medium">内容还没保存，确认要丢弃吗？</span>
+              <div className="flex gap-3">
+                <button onClick={() => { window.electronAPI?.hideWindow(); setText(''); setShowDiscardConfirm(false); }} className="px-5 py-2.5 rounded-full bg-white border border-stone-200 text-stone-600 font-medium hover:bg-stone-50 transition-colors shadow-sm text-sm">
+                  确定退出
+                </button>
+                <button
+                  onClick={() => {
+                    setShowDiscardConfirm(false);
+                    setTimeout(() => textareaRef.current?.focus(), 10);
+                  }}
+                  className="px-5 py-2.5 rounded-full bg-stone-900 text-white font-medium hover:bg-stone-800 transition-colors shadow-sm text-sm"
+                >
+                  继续编辑
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
