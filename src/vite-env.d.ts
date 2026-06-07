@@ -22,6 +22,8 @@ interface Window {
     onReminderShow?: (callback: (task: any) => void) => () => void;
     onMorningShow?: (callback: (tasks: any[]) => void) => () => void;
     onReviewShow?: (callback: () => void) => () => void;
+    onWeeklyShow?: (callback: (data: any) => void) => () => void;
+    handleWeeklyAction?: (action: string, data: any) => Promise<void>;
     showThemeContextMenu?: () => void;
     onThemeChange?: (callback: (theme: 'pastel' | 'macos-dark' | 'ios-acrylic') => void) => () => void;
   };
