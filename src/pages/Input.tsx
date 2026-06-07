@@ -7,18 +7,21 @@ function App() {
   const [text, setText] = useState('');
   const [status, setStatus] = useState<'idle' | 'saving' | 'success'>('idle');
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     const cleanup = window.electronAPI?.onWindowShow(() => {
       setText('');
       setStatus('idle');
+      if (textareaRef.current) {
+        textareaRef.current.style.height = '40px';
+      }
       setTimeout(() => {
-        inputRef.current?.focus();
+        textareaRef.current?.focus();
       }, 10);
     });
     
-    inputRef.current?.focus();
+    textareaRef.current?.focus();
     return cleanup;
   }, []);
 
@@ -26,11 +29,11 @@ function App() {
     window.electronAPI?.setCanHide?.(!text.trim() && !showDiscardConfirm);
   }, [text, showDiscardConfirm]);
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Escape') {
       if (showDiscardConfirm) {
         setShowDiscardConfirm(false);
-        setTimeout(() => inputRef.current?.focus(), 10);
+        setTimeout(() => textareaRef.current?.focus(), 10);
       } else if (text.trim()) {
         setShowDiscardConfirm(true);
       } else {
@@ -63,7 +66,7 @@ function App() {
   return (
     <div className="w-full h-full flex items-center justify-center p-4 bg-transparent">
       <div 
-        className="w-full max-w-[560px] h-[64px] shadow-[inset_0_2px_4px_rgba(255,255,255,0.8),_0_15px_30px_-5px_rgba(0,0,0,0.15)] border border-white/80 rounded-full overflow-hidden flex flex-row items-center transition-all duration-300 relative bg-[#f8f9fa]"
+        className="w-full max-w-[560px] min-h-[64px] h-auto shadow-[inset_0_2px_4px_rgba(255,255,255,0.8),_0_15px_30px_-5px_rgba(0,0,0,0.15)] border border-white/80 rounded-[32px] overflow-hidden flex flex-row items-end transition-all duration-300 relative bg-[#f8f9fa]"
         style={{ WebkitAppRegion: 'drag' } as any}
       >
         {/* Solid Pastel Mesh Gradient Background */}
@@ -77,18 +80,22 @@ function App() {
         </div>
         
         {/* Content Area (z-20 to sit above backgrounds) */}
-        <div className="w-full h-full relative z-20 flex flex-row items-center px-3 gap-3">
+        <div className="w-full relative z-20 flex flex-row items-end px-3 gap-3 py-3">
           
           {/* Input Area */}
-          <input
-            ref={inputRef}
-            type="text"
+          <textarea
+            ref={textareaRef}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              setText(e.target.value);
+              e.target.style.height = '40px';
+              e.target.style.height = `${Math.min(e.target.scrollHeight, 88)}px`;
+            }}
             onKeyDown={handleKeyDown}
             placeholder="随时记录灵感..."
-            className="flex-1 h-full bg-transparent border-none outline-none text-stone-800 text-[17px] font-medium placeholder:text-stone-400 pl-3"
-            style={{ WebkitAppRegion: 'no-drag' } as any}
+            className="flex-1 bg-transparent border-none outline-none text-stone-800 text-[17px] font-medium placeholder:text-stone-400 pl-3 resize-none overflow-y-auto py-2 leading-[24px]"
+            rows={1}
+            style={{ WebkitAppRegion: 'no-drag', minHeight: '40px', maxHeight: '88px', height: '40px' } as any}
             disabled={status !== 'idle'}
             autoFocus
           />
@@ -105,23 +112,20 @@ function App() {
         </div>
         {/* Discard Confirmation Overlay */}
         {showDiscardConfirm && (
-          <div className="absolute inset-0 bg-[#fcfcfc]/90 backdrop-blur-md flex items-center justify-center rounded-full z-50" style={{ WebkitAppRegion: 'no-drag' } as any}>
-            <div className="flex flex-col items-center gap-5">
-              <span className="text-stone-800 font-medium">内容还没保存，确认要丢弃吗？</span>
-              <div className="flex gap-3">
+          <div className="absolute inset-0 bg-[#fcfcfc]/90 backdrop-blur-md flex items-center justify-center rounded-[32px] z-50" style={{ WebkitAppRegion: 'no-drag' } as any}>
+            <div className="flex gap-3">
                 <button onClick={() => { window.electronAPI?.hideWindow(); setText(''); setShowDiscardConfirm(false); }} className="px-5 py-2.5 rounded-full bg-white border border-stone-200 text-stone-600 font-medium hover:bg-stone-50 transition-colors shadow-sm text-sm">
                   确定退出
                 </button>
                 <button
                   onClick={() => {
                     setShowDiscardConfirm(false);
-                    setTimeout(() => inputRef.current?.focus(), 10);
+                    setTimeout(() => textareaRef.current?.focus(), 10);
                   }}
                   className="px-5 py-2.5 rounded-full bg-stone-900 text-white font-medium hover:bg-stone-800 transition-colors shadow-sm text-sm"
                 >
                   继续编辑
                 </button>
-              </div>
             </div>
           </div>
         )}
