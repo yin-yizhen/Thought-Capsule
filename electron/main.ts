@@ -603,21 +603,17 @@ app.whenReady().then(() => {
     } else if (reviewState.lastMorningDate === todayStr) {
       // Afternoon later tasks check
       const dueDelayedTasks = tasks.filter(t => t.status === 'delayed' && new Date(t.remindAt) <= now);
-      const dueDelayedReminders = reminders.filter(r => r.status === 'delayed' && new Date(r.remindAt) <= now);
-      const dueAggregated = [...dueDelayedTasks, ...dueDelayedReminders];
       
-      if (dueAggregated.length > 0 && (!reminderWindow || !reminderWindow.isVisible())) {
-        showMorningWindow(dueAggregated);
+      if (dueDelayedTasks.length > 0 && (!reminderWindow || !reminderWindow.isVisible())) {
+        showMorningWindow(dueDelayedTasks);
         // bump their time slightly so it doesn't infinite loop if ignored
         dueDelayedTasks.forEach(t => { t.remindAt = new Date(Date.now() + 5*60*1000).toISOString(); });
-        dueDelayedReminders.forEach(r => { r.remindAt = new Date(Date.now() + 5*60*1000).toISOString(); });
         tasksStore.setAll(tasks);
-        remindersStore.setAll(reminders);
       }
     }
 
     // 2. Exact Reminders Check
-    const dueReminders = reminders.filter(r => r.status === 'pending' && new Date(r.remindAt) <= now);
+    const dueReminders = reminders.filter(r => (r.status === 'pending' || r.status === 'delayed') && new Date(r.remindAt) <= now);
     if (dueReminders.length > 0 && (!reminderWindow || !reminderWindow.isVisible())) {
       showReminderWindow(dueReminders[0]);
       dueReminders[0].status = 'shown'; // Prevent loop
