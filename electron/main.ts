@@ -490,6 +490,7 @@ app.whenReady().then(() => {
 
   ipcMain.handle('handle-morning-actions', async (event, actions: {taskId: string, action: string}[]) => {
     const tasks = tasksStore.getAll();
+    const reminders = remindersStore.getAll();
     const now = new Date();
     const config = configStore.getAll();
     
@@ -502,36 +503,52 @@ app.whenReady().then(() => {
     pmLateTime.setHours(18, 0, 0, 0);
 
     actions.forEach(act => {
-      const taskIndex = tasks.findIndex(t => t.id === act.taskId);
-      if (taskIndex !== -1) {
+      // Find in tasks or reminders
+      let isTask = true;
+      let itemIndex = tasks.findIndex(t => t.id === act.taskId);
+      let targetList = tasks;
+      
+      if (itemIndex === -1) {
+        itemIndex = reminders.findIndex(r => r.id === act.taskId);
+        targetList = reminders;
+        isTask = false;
+      }
+
+      if (itemIndex !== -1) {
         if (act.action === 'done') {
-          tasks[taskIndex].status = 'completed';
+          targetList[itemIndex].status = 'completed';
         } else if (act.action === 'cancel') {
-          tasks[taskIndex].status = 'cancelled';
+          targetList[itemIndex].status = 'cancelled';
         } else if (act.action === 'later') {
-          tasks[taskIndex].status = 'delayed';
-          if (now < pmTime) {
-            tasks[taskIndex].remindAt = pmTime.toISOString();
-          } else if (now < pmLateTime) {
-            tasks[taskIndex].remindAt = pmLateTime.toISOString();
-          } else {
-            const tomorrow = new Date();
-            tomorrow.setDate(tomorrow.getDate() + 1);
-            const [mh, mm] = (config.morningTime || '09:00').split(':');
-            tomorrow.setHours(parseInt(mh), parseInt(mm), 0, 0);
-            tasks[taskIndex].remindAt = tomorrow.toISOString();
+          targetList[itemIndex].status = 'delayed';
+          
+          // Only overwrite remindAt if it's a task, or if the reminder is already past due
+          const currentRemindAt = new Date(targetList[itemIndex].remindAt);
+          if (isTask || currentRemindAt <= now) {
+            if (now < pmTime) {
+              targetList[itemIndex].remindAt = pmTime.toISOString();
+            } else if (now < pmLateTime) {
+              targetList[itemIndex].remindAt = pmLateTime.toISOString();
+            } else {
+              const tomorrow = new Date();
+              tomorrow.setDate(tomorrow.getDate() + 1);
+              const [mh, mm] = (config.morningTime || '09:00').split(':');
+              tomorrow.setHours(parseInt(mh), parseInt(mm), 0, 0);
+              targetList[itemIndex].remindAt = tomorrow.toISOString();
+            }
           }
         } else if (act.action === 'tomorrow') {
-          tasks[taskIndex].status = 'delayed';
+          targetList[itemIndex].status = 'delayed';
           const tomorrow = new Date();
           tomorrow.setDate(tomorrow.getDate() + 1);
           const [mh, mm] = (config.morningTime || '09:00').split(':');
           tomorrow.setHours(parseInt(mh), parseInt(mm), 0, 0);
-          tasks[taskIndex].remindAt = tomorrow.toISOString();
+          targetList[itemIndex].remindAt = tomorrow.toISOString();
         }
       }
     });
     tasksStore.setAll(tasks);
+    remindersStore.setAll(reminders);
     reminderWindow?.hide();
   });
 
@@ -555,7 +572,8 @@ app.whenReady().then(() => {
     const reminders = remindersStore.getAll();
     const now = new Date();
     const config = configStore.getAll();
-    const todayStr = now.toISOString().split('T')[0];
+    const localOffset = now.getTimezoneOffset() * 60000;
+    const todayStr = new Date(now.getTime() - localOffset).toISOString().split('T')[0];
     const reviewState = reviewStore.getAll();
 
     // 1. Morning Tasks Check
@@ -567,19 +585,34 @@ app.whenReady().then(() => {
       const pendingTasks = tasks.filter(t => 
         t.status === 'pending' || (t.status === 'delayed' && new Date(t.remindAt) <= now)
       );
-      if (pendingTasks.length > 0) {
-        showMorningWindow(pendingTasks);
+      
+      const todaysReminders = reminders.filter(r => {
+        if (r.status !== 'pending' && r.status !== 'delayed') return false;
+        const rDate = new Date(r.remindAt);
+        const rDateStr = new Date(rDate.getTime() - localOffset).toISOString().split('T')[0];
+        return rDateStr === todayStr;
+      });
+
+      const aggregatedMorningItems = [...pendingTasks, ...todaysReminders];
+
+      if (aggregatedMorningItems.length > 0) {
+        showMorningWindow(aggregatedMorningItems);
         reviewState.lastMorningDate = todayStr;
         reviewStore.setAll(reviewState);
       }
     } else if (reviewState.lastMorningDate === todayStr) {
       // Afternoon later tasks check
       const dueDelayedTasks = tasks.filter(t => t.status === 'delayed' && new Date(t.remindAt) <= now);
-      if (dueDelayedTasks.length > 0 && (!reminderWindow || !reminderWindow.isVisible())) {
-        showMorningWindow(dueDelayedTasks);
+      const dueDelayedReminders = reminders.filter(r => r.status === 'delayed' && new Date(r.remindAt) <= now);
+      const dueAggregated = [...dueDelayedTasks, ...dueDelayedReminders];
+      
+      if (dueAggregated.length > 0 && (!reminderWindow || !reminderWindow.isVisible())) {
+        showMorningWindow(dueAggregated);
         // bump their time slightly so it doesn't infinite loop if ignored
         dueDelayedTasks.forEach(t => { t.remindAt = new Date(Date.now() + 5*60*1000).toISOString(); });
+        dueDelayedReminders.forEach(r => { r.remindAt = new Date(Date.now() + 5*60*1000).toISOString(); });
         tasksStore.setAll(tasks);
+        remindersStore.setAll(reminders);
       }
     }
 
