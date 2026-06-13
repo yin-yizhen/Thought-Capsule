@@ -249,9 +249,11 @@ app.whenReady().then(() => {
   // Register Global Shortcut
   const config = configStore.getAll();
   
+  const exePath = process.env.PORTABLE_EXECUTABLE_FILE || app.getPath('exe');
   app.setLoginItemSettings({
     openAtLogin: config.autoStart || false,
-    openAsHidden: true
+    openAsHidden: true,
+    path: exePath
   });
 
   const shortcut = config.shortcut || 'CommandOrControl+`';
@@ -553,12 +555,6 @@ app.whenReady().then(() => {
   });
 
 
-
-  // Set Auto-launch
-  app.setLoginItemSettings({
-    openAtLogin: true,
-    path: app.getPath('exe')
-  });
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -947,10 +943,9 @@ function createReminderWindowInternal() {
 }
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-    mainWindow = null;
-  }
+  // Do not quit the app when all windows are closed.
+  // The app should remain running in the background (system tray)
+  // so that reminders and cron jobs can continue to fire.
 });
 
 app.on('will-quit', () => {
