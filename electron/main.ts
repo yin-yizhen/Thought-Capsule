@@ -610,7 +610,7 @@ app.whenReady().then(() => {
 
     // 2. Exact Reminders Check
     const dueReminders = reminders.filter(r => (r.status === 'pending' || r.status === 'delayed') && new Date(r.remindAt) <= now);
-    if (dueReminders.length > 0 && (!reminderWindow || !reminderWindow.isVisible())) {
+    if (dueReminders.length > 0) {
       showReminderWindow(dueReminders[0]);
       dueReminders[0].status = 'shown'; // Prevent loop
       remindersStore.setAll(reminders);
@@ -844,12 +844,16 @@ function showReviewWindow() {
   if (!reminderWindow) {
     createReminderWindowInternal();
     reminderWindow?.webContents.once('did-finish-load', () => {
+      if (reminderWindow?.isMinimized()) reminderWindow.restore();
       reminderWindow?.show();
+      reminderWindow?.focus();
       reminderWindow?.webContents.send('review-show');
       shell.beep();
     });
   } else {
+    if (reminderWindow?.isMinimized()) reminderWindow.restore();
     reminderWindow?.show();
+    reminderWindow?.focus();
     reminderWindow?.webContents.send('review-show');
     shell.beep();
   }
@@ -859,12 +863,16 @@ function showMorningWindow(tasks: any[]) {
   if (!reminderWindow) {
     createReminderWindowInternal();
     reminderWindow?.webContents.once('did-finish-load', () => {
+      if (reminderWindow?.isMinimized()) reminderWindow.restore();
       reminderWindow?.show();
+      reminderWindow?.focus();
       reminderWindow?.webContents.send('morning-show', tasks);
       shell.beep();
     });
   } else {
+    if (reminderWindow?.isMinimized()) reminderWindow.restore();
     reminderWindow?.show();
+    reminderWindow?.focus();
     reminderWindow?.webContents.send('morning-show', tasks);
     shell.beep();
   }
@@ -874,12 +882,16 @@ function showReminderWindow(task: any) {
   if (!reminderWindow) {
     createReminderWindowInternal();
     reminderWindow?.webContents.once('did-finish-load', () => {
+      if (reminderWindow?.isMinimized()) reminderWindow.restore();
       reminderWindow?.show();
+      reminderWindow?.focus();
       reminderWindow?.webContents.send('reminder-show', task);
       shell.beep();
     });
   } else {
+    if (reminderWindow?.isMinimized()) reminderWindow.restore();
     reminderWindow?.show();
+    reminderWindow?.focus();
     reminderWindow?.webContents.send('reminder-show', task);
     shell.beep();
   }
